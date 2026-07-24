@@ -54,15 +54,29 @@ export default async function ProposalsPage({
   searchParams: Promise<{ staff?: string }>;
 }) {
   const sp = await searchParams;
-  const staffIds = await staffIdsWithReviews();
-  const staffId = sp.staff ?? staffIds[0] ?? "coordinator_a";
 
-  const [pending, memory, waiting, byVersion] = await Promise.all([
-    listProposals("pending", staffId),
-    getMemory(staffId),
-    unanalyzedCount(staffId),
-    metricsByPromptVersion(staffId),
-  ]);
+  // DBに繋がらない・テーブルが無い場合、そのまま投げると本番では
+  // Digest だけが表示されて原因が分かりません。ここで捕まえて
+  // 実際のエラーメッセージと対処法を画面に出します。
+  let staffIds: string[];
+  let pending: Awaited<ReturnType<typeof listProposals>>;
+  let memory: Awaited<ReturnType<typeof getMemory>>;
+  let waiting: number;
+  let byVersion: Awaited<ReturnType<typeof metricsByPromptVersion>>;
+  let staffId: string;
+
+  try {
+    staffIds = await staffIdsWithReviews();
+    staffId = sp.staff ?? staffIds[0] ?? "coordinator_a";
+    [pending, memory, waiting, byVersion] = await Promise.all([
+      listProposals("pending", staffId),
+      getMemory(staffId),
+      unanalyzedCount(staffId),
+      metricsByPromptVersion(staffId),
+    ]);
+  } catch (err) {
+    return <SetupError error={err} />;
+  }
 
   const minReviews = Number(process.env.LEARN_MIN_REVIEWS ?? 5);
   const pct = (v: number | null) =>
@@ -285,6 +299,69 @@ export default async function ProposalsPage({
             <li key={n}>{n}</li>
           ))}
         </ul>
+      </div>
+    </main>
+  );
+}
+
+/**
+ * DB未設定・未マイグレーション時の案内。
+ *
+ * 本番の Next.js は例外の中身を隠して Digest だけを返すため、
+ * 設定ミスの切り分けが極端にやりにくくなります。
+ * 想定内の失敗はここで受けて、次にやることまで書きます。
+ */
+function SetupError({ error }: { error: unknown }) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  let hint = "エラーメッセージを確認してください。";
+  if (message.includes("DATABASE_URL")) {
+    hint =
+      "Amplify コンソールの環境変数に DATABASE_URL を設定し、再デプロイしてください。環境変数の変更だけでは反映されません。";
+  } else if (message.includes("does not exist") || message.includes("relation")) {
+    hint =
+      "スキーマが未適用です。psql \"$DATABASE_URL\" -f db/schema.sql と -f db/002_messages.sql を実行してください。";
+  } else if (
+    message.includes("timeout") ||
+    message.includes("ETIMEDOUT") ||
+    message.includes("ECONNREFUSED")
+  ) {
+    hint =
+      "DBに到達できません。RDSのセキュリティグループで Lambda からの 5432 番を許可しているか、VPC設定を確認してください。";
+  } else if (message.includes("password") || message.includes("authentication")) {
+    hint =
+      "認証に失敗しています。接続文字列のユーザー名とパスワードを確認してください。特殊文字はURLエンコードが必要です。";
+  } else if (message.includes("SSL") || message.includes("pg_hba")) {
+    hint =
+      "SSL設定が合っていません。RDS が SSL を要求している場合、PGSSL は未設定のままにしてください。";
+  }
+
+  return (
+    <main>
+      <div className="card">
+        <h2>データベースに接続できません</h2>
+        <div className="banner warn" style={{ marginBottom: 14 }}>
+          {hint}
+        </div>
+        <p className="note" style={{ margin: "0 0 6px" }}>
+          実際のエラー
+        </p>
+        <pre
+          className="mono"
+          style={{
+            margin: 0,
+            padding: "10px 12px",
+            background: "var(--ground)",
+            borderRadius: 4,
+            whiteSpace: "pre-wrap",
+            overflowX: "auto",
+          }}
+        >
+          {message}
+        </pre>
+        <p className="note" style={{ marginTop: 14, marginBottom: 0 }}>
+          <a href="/api/health">/api/health</a> でDB接続だけを個別に確認できます。
+        </p>
       </div>
     </main>
   );
