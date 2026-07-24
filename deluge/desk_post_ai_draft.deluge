@@ -1,0 +1,25 @@
+/**
+ * ① 下書き作成時に呼ぶ
+ *
+ * 既存の返信生成スクリプトの、draftReply 作成成功後に追記してください。
+ * トリガー: チケット作成 / 更新（既存のワークフローに相乗り）
+ */
+payload = Map();
+payload.put("ticket_id",ticketId.toString());
+payload.put("message",answer);
+payload.put("kind","ai");
+payload.put("staff_id",ifnull(assigneeId,"").toString());
+payload.put("prompt_id",prompt_id);
+payload.put("prompt_version",prompt_version);
+payload.put("model","gpt-5.6");
+headers = Map();
+headers.put("Content-Type","application/json");
+headers.put("X-Api-Key","<HOOK_SECRET>");
+resp = invokeurl
+[
+	url :"https://<amplify-domain>/api/messages"
+	type :POST
+	parameters:payload.toString()
+	headers:headers
+];
+info "下書き記録: " + resp;

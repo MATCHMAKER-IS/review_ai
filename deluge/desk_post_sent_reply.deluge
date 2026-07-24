@@ -1,0 +1,83 @@
+/**
+ * ② 返信送信時に呼ぶ
+ *
+ * 別ワークフローとして作成してください。
+ * トリガー: チケットへの返信が送信されたとき
+ *
+ * これが無いと sent_body が永久に集まらず、
+ * レビュー学習AIは何も学習できません。
+ */
+orgId = 696183508;
+ticketId = ticket_id;
+
+// 直近の送信済みスレッド（自社→顧客）の本文を取得
+thread_resp = zoho.desk.getRelatedRecords(orgId,"threads","tickets",ticketId,0,10);
+thread_data = thread_resp.getJSON("data");
+if(thread_data == null)
+{
+	info "ERROR: threadsが取得できません";
+	return;
+}
+thread_list = thread_data.toList();
+sent_text = "";
+for each  t in thread_list
+{
+	direction = ifnull(t.get("direction"),"");
+	if(direction == "out" && sent_text == "")
+	{
+		tid = t.get("id");
+		detail = invokeurl
+		[
+			url :"https://desk.zoho.com/api/v1/tickets/" + ticketId + "/threads/" + tid + "?include=plainText"
+			type :GET
+			connection:"desk_connection"
+		];
+		plain = detail.get("plainText");
+		if(plain != null)
+		{
+			sent_text = ifnull(plain.get(0),"");
+		}
+	}
+}
+if(sent_text == "")
+{
+	info "送信本文が取得できませんでした";
+	return;
+}
+
+// 引用部分の切り落とし（既存スクリプトと同じ処理）
+delims = List();
+delims.add("----");
+delims.add("━━");
+delims.add("-----Original Message-----");
+for each  d in delims
+{
+	if(sent_text.contains(d))
+	{
+		sent_text = sent_text.getPrefix(d).get(0);
+	}
+}
+sent_text = sent_text.trim();
+
+payload = Map();
+payload.put("ticket_id",ticketId.toString());
+payload.put("message",sent_text);
+payload.put("kind","sent");
+payload.put("staff_id",ifnull(assigneeId,"").toString());
+headers = Map();
+headers.put("Content-Type","application/json");
+headers.put("X-Api-Key","<HOOK_SECRET>");
+resp = invokeurl
+[
+	url :"https://<amplify-domain>/api/messages"
+	type :POST
+	parameters:payload.toString()
+	headers:headers
+];
+info "送信記録: " + resp;
+
+// paired が true ならレビューが1件できています
+if(resp.get("paired") == true)
+{
+	info "  切り分け: " + resp.get("fault") + " / 修正量: " + resp.get("diff_ratio");
+}

@@ -3,9 +3,16 @@ frontend:
   phases:
     preBuild:
       commands:
+        # ── 診断 ──────────────────────────────
+        # ビルドが「app ディレクトリが無い」で落ちた場合、
+        # ここの出力で何がリポジトリに入っているか確認できます。
+        # 問題が解決したらこの3行は消して構いません。
+        - echo "--- working dir ---" && pwd
+        - echo "--- root files ---" && ls -la
+        - echo "--- app dir ---" && ls -la app 2>/dev/null || echo "!!! app ディレクトリが存在しません !!!"
+        # ── 依存インストール ──────────────────
         # package-lock.json があれば npm ci（再現性が高い）。
         # 無ければ npm install にフォールバックしてビルドを止めない。
-        # 本来はロックファイルをコミットして npm ci で固定してください。
         - if [ -f package-lock.json ]; then npm ci; else npm install; fi
     build:
       commands:
