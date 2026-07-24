@@ -3,11 +3,14 @@ frontend:
   phases:
     preBuild:
       commands:
-        - npm ci
+        # package-lock.json があれば npm ci（再現性が高い）。
+        # 無ければ npm install にフォールバックしてビルドを止めない。
+        # 本来はロックファイルをコミットして npm ci で固定してください。
+        - if [ -f package-lock.json ]; then npm ci; else npm install; fi
     build:
       commands:
-        # DATABASE_URL などは Amplify コンソールの環境変数から注入されます。
-        # ビルド時にはDBへ接続しません（接続はリクエスト時のみ）。
+        # DATABASE_URL は Amplify コンソールの環境変数から注入されます。
+        # ビルド時にDBへは接続しません（接続はリクエスト時のみ）。
         - npm run build
   artifacts:
     baseDirectory: .next
