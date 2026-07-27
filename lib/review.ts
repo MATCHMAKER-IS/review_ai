@@ -83,12 +83,20 @@ export interface ReviewResult {
  * このプロンプトを書き換えたら必ず上げてください。
  * Managed Prompt は廃止予定のため、版管理は自前で持ちます。
  */
-export const REVIEW_PROMPT_VERSION = "2.0.0";
+export const REVIEW_PROMPT_VERSION = "2.1.0";
 
 const INSTRUCTIONS = [
   "あなたは男女のマッチングのコーディネーター業務を支援するAIの振り返り担当です。",
   "AIが作成した下書き①と、コーディネーターが実際に送信した文面②を比較し、",
   "何がどう書き換えられたかを抽出してください。",
+  "",
+  "【差分の抽出】",
+  "- 変更された箇所が複数ある場合は、すべてを diffs 配列に列挙してください。",
+  "  1箇所だけに絞らないこと。語尾・敬語・顔文字・句読点・語順など、",
+  "  種類が違えば別の要素として分けて挙げてください。",
+  "- before は①の該当箇所、after は②の該当箇所。追加された表現は",
+  "  before を空文字、削除された表現は after を空文字にしてください。",
+  "- 変更が無ければ diffs は空配列にしてください。",
   "",
   "【判定の指針】",
   "- substance_changed は、宛先・伝えている事実・依頼内容が変わったかどうか。",
@@ -113,7 +121,10 @@ const INSTRUCTIONS = [
   "【出力】次の形のJSONオブジェクトのみを返してください。",
   JSON.stringify(
     {
-      diffs: [{ before: "①の該当箇所", after: "②の該当箇所", kind: "文末表現 など" }],
+      diffs: [
+        { before: "①の該当箇所", after: "②の該当箇所", kind: "文末表現 など" },
+        { before: "別の該当箇所", after: "変更後", kind: "敬語 など" },
+      ],
       substance_changed: false,
       generation_mistake: true,
       style_finding: { rule: "", applies_when: "", avoid_when: "" },

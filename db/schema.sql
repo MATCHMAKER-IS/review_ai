@@ -62,6 +62,19 @@ CREATE TABLE IF NOT EXISTS review_judgments (
 
   -- ── OpenAI が言語化した部分 ──────────────
   diff_summary    TEXT,                          -- 差異の要約（一文）
+
+  -- 差分箇所の抽出。複数箇所あっても、すべてここに入ります。
+  --   diffs      : [{before, after, kind}, ...] を構造のまま保持。
+  --                これが正。1件ずつ正確に対応を取りたいときは
+  --                jsonb_array_elements(diffs) で展開する。
+  --   diff_count : 差分の個数（0件＝修正なし）
+  --   diff_pairs : 「① before → after」形式で全件を並べた目視用テキスト。
+  --                before/after を別列にすると複数件で行ずれするため、
+  --                ペアを1行に結んで持つ。
+  diffs           JSONB,
+  diff_count      INTEGER NOT NULL DEFAULT 0,
+  diff_pairs      TEXT,
+
   analysis        JSONB,                         -- 差分・文体ルール候補などの構造化データ
 
   -- ── 実行時の版情報（再現・比較用）────────

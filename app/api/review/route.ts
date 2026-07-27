@@ -145,6 +145,25 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const a = result.analysis;
 
+    // 差分箇所の抽出。複数箇所あってもすべて保持します。
+    //   diffs      : OpenAI が返した配列そのまま（正）
+    //   diff_pairs : 「① before → after」形式で全件を1行ずつ並べた目視用。
+    //                before/after を別列にすると複数件で行がずれるため、
+    //                ペアを1行に結んでおく。
+    const diffs = a?.diffs ?? null;
+    const diffCount = diffs ? diffs.length : 0;
+    const diffPairs =
+      diffs && diffs.length > 0
+        ? diffs
+            .map((d, i) => {
+              const before = d.before || "（なし）";
+              const after = d.after || "（なし）";
+              const kind = d.kind ? `　[${d.kind}]` : "";
+              return `${i + 1}. ${before} → ${after}${kind}`;
+            })
+            .join("\n")
+        : null;
+
     // ── 4. 判定結果を保存 ───────────────────
     const judgment = await saveJudgment({
       ticket_id: pair.ticket_id,
@@ -157,6 +176,9 @@ export async function POST(req: Request): Promise<NextResponse> {
       fault: result.deterministic.fault,
       fault_reason: result.deterministic.fault_reason,
       diff_summary: a?.summary ?? null,
+      diffs,
+      diff_count: diffCount,
+      diff_pairs: diffPairs,
       analysis: a,
       model: result.versions.model_resolved,
       review_prompt_version: result.versions.review_prompt_version,

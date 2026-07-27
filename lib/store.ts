@@ -115,6 +115,9 @@ export interface JudgmentToSave {
   fault: string;
   fault_reason: string | null;
   diff_summary: string | null;
+  diffs: unknown | null;        // [{before, after, kind}, ...]（正）
+  diff_count: number;           // 差分の個数
+  diff_pairs: string | null;    // 「① before → after」形式の目視用
   analysis: unknown | null;
   model: string | null;
   review_prompt_version: string | null;
@@ -131,10 +134,11 @@ export async function saveJudgment(j: JudgmentToSave): Promise<{ id: string }> {
   const row = await queryOne<{ id: string }>(
     `INSERT INTO review_judgments
        (ticket_id, staff_id, memory_version, ai_message, sent_message,
-        has_diff, diff_ratio, fault, fault_reason, diff_summary, analysis,
+        has_diff, diff_ratio, fault, fault_reason, diff_summary,
+        diffs, diff_count, diff_pairs, analysis,
         model, review_prompt_version, openai_response_id, openai_error)
      VALUES
-       ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
      ON CONFLICT (ticket_id) DO UPDATE SET
        staff_id              = EXCLUDED.staff_id,
        memory_version        = EXCLUDED.memory_version,
@@ -145,6 +149,9 @@ export async function saveJudgment(j: JudgmentToSave): Promise<{ id: string }> {
        fault                 = EXCLUDED.fault,
        fault_reason          = EXCLUDED.fault_reason,
        diff_summary          = EXCLUDED.diff_summary,
+       diffs                 = EXCLUDED.diffs,
+       diff_count            = EXCLUDED.diff_count,
+       diff_pairs            = EXCLUDED.diff_pairs,
        analysis              = EXCLUDED.analysis,
        model                 = EXCLUDED.model,
        review_prompt_version = EXCLUDED.review_prompt_version,
@@ -163,6 +170,9 @@ export async function saveJudgment(j: JudgmentToSave): Promise<{ id: string }> {
       j.fault,
       j.fault_reason,
       j.diff_summary,
+      j.diffs === null ? null : JSON.stringify(j.diffs),
+      j.diff_count,
+      j.diff_pairs,
       j.analysis === null ? null : JSON.stringify(j.analysis),
       j.model,
       j.review_prompt_version,
