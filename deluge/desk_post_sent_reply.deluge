@@ -62,14 +62,14 @@ sent_text = sent_text.trim();
 payload = Map();
 payload.put("ticket_id",ticketId.toString());
 payload.put("message",sent_text);
-payload.put("kind","sent");
+payload.put("type","sent");
 payload.put("staff_id",ifnull(assigneeId,"").toString());
 headers = Map();
 headers.put("Content-Type","application/json");
 headers.put("X-Api-Key","<HOOK_SECRET>");
 resp = invokeurl
 [
-	url :"https://<amplify-domain>/api/messages"
+	url :"https://<amplify-domain>/api/review"
 	type :POST
 	parameters:payload.toString()
 	headers:headers

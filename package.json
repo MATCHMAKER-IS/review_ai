@@ -9,7 +9,6 @@
     "start": "next start",
     "migrate": "psql \"$DATABASE_URL\" -f db/schema.sql",
     "seed": "tsx scripts/seed-reviews.ts",
-    "analyze": "tsx scripts/run-analyze.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

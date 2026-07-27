@@ -1,0 +1,207 @@
+import { NextResponse } from "next/server";
+import {
+  saveMessage,
+  getPairIfComplete,
+  saveJudgment,
+  type MessageType,
+} from "@/lib/store";
+import { reviewPair } from "@/lib/review";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 120;
+
+/**
+ * レビューAI 受信・判定口
+ *
+ * ══ POST 専用 ══════════════════════════
+ *
+ *   POST /api/review
+ *   X-Api-Key: <HOOK_SECRET>
+ *
+ *   {
+ *     "ticket_id": "1234567",   必須  問い合わせID
+ *     "message":   "本文",       必須  メッセージ内容
+ *     "type":      "ai",         必須  "ai" / "sent"
+ *     "staff_id":  "890123",     任意  担当ユーザーのID
+ *     "memory":    7             任意  メモリのバージョン番号
+ *   }
+ *
+ * 【流れ】
+ *   1. 受信メッセージを1行保存（review_messages）
+ *   2. 同じ ticket_id に ai と sent が揃ったか確認
+ *   3. 揃っていれば OpenAI で差異を判定
+ *   4. 判定結果を保存（review_judgments）
+ *
+ *   ai を先に受けた段階（sent 未達）では 1 だけ行い、判定はしません。
+ *
+ * 【判定内でLLMを使う範囲】
+ *   差分の有無・修正量・§7の切り分けは純粋な関数で計算します。
+ *   OpenAI には「差分の要約と文体ルールの言語化」だけをさせます。
+ *   OpenAI が失敗しても、機械的な判定結果は保存されます。
+ *
+ * 【レスポンス】
+ *   成功: { "result": "success" }              HTTP 200
+ *   失敗: { "result": "error", "code": "...", "message": "..." }
+ *
+ *   判定の中身（差分・切り分け・要約）は review_judgments に保存され、
+ *   レスポンスには含めません。API は成功/失敗だけを返します。
+ */
+
+/**
+ * 失敗レスポンス。形は常に { result: "error", ... }。
+ *
+ * message は原因調査用に残します（CloudWatch では追いにくいため、
+ * Deluge のログにも理由が残るように）。判定に使うのは result だけで
+ * 十分です。
+ */
+function fail(status: number, code: string, message: string): NextResponse {
+  return NextResponse.json({ result: "error", code, message }, { status });
+}
+
+const AI_ALIASES = ["ai", "draft", "0"];
+const SENT_ALIASES = ["sent", "send", "1"];
+
+function normalizeType(raw: unknown): MessageType | null {
+  if (typeof raw === "number") return raw === 1 ? "sent" : "ai";
+  if (typeof raw !== "string") return null;
+  const v = raw.trim().toLowerCase();
+  if (AI_ALIASES.includes(v)) return "ai";
+  if (SENT_ALIASES.includes(v)) return "sent";
+  return null;
+}
+
+function toInt(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.trunc(raw);
+  if (typeof raw === "string" && raw.trim() !== "") {
+    const n = Number(raw.trim());
+    return Number.isFinite(n) ? Math.trunc(n) : null;
+  }
+  return null;
+}
+
+export async function POST(req: Request): Promise<NextResponse> {
+  const secret = process.env.HOOK_SECRET;
+  if (secret && req.headers.get("x-api-key") !== secret) {
+    return fail(401, "unauthorized", "X-Api-Key が正しくありません");
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return fail(400, "invalid_json", "リクエストボディをJSONとして解釈できません");
+  }
+
+  const str = (k: string): string | null => {
+    const v = body[k];
+    if (typeof v === "number") return String(v);
+    return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+  };
+
+  const ticketId = str("ticket_id");
+  const message = str("message") ?? str("body") ?? str("text");
+  const type = normalizeType(body.type ?? body.kind);
+  const staffId = str("staff_id") ?? str("staff");
+  const memoryVersion = toInt(body.memory ?? body.memory_version);
+
+  const missing: string[] = [];
+  if (!ticketId) missing.push("ticket_id");
+  if (!message) missing.push("message");
+  if (!type) missing.push("type（ai または sent）");
+  if (missing.length > 0) {
+    return fail(
+      400,
+      "missing_fields",
+      `必須項目が不足しています: ${missing.join(", ")}`,
+      { missing, received: Object.keys(body) },
+    );
+  }
+
+  try {
+    // ── 1. 受信メッセージを保存 ──────────────
+    const saved = await saveMessage({
+      ticket_id: ticketId!,
+      message: message!,
+      type: type!,
+      staff_id: staffId,
+      memory_version: memoryVersion,
+    });
+
+    // ── 2. ai と sent が揃ったか ─────────────
+    const pair = await getPairIfComplete(saved.ticket_id);
+
+    if (!pair) {
+      // まだ片方だけ。保存は成功したので success を返します。
+      // 判定はペアが揃ってから走ります。
+      return NextResponse.json({ result: "success" }, { status: 200 });
+    }
+
+    // ── 3. OpenAI で判定 ────────────────────
+    const result = await reviewPair({
+      ai_body: pair.ai_message,
+      sent_body: pair.sent_message,
+      generated_prompt_version: null,
+    });
+
+    const a = result.analysis;
+
+    // ── 4. 判定結果を保存 ───────────────────
+    const judgment = await saveJudgment({
+      ticket_id: pair.ticket_id,
+      staff_id: pair.staff_id,
+      memory_version: pair.memory_version,
+      ai_message: pair.ai_message,
+      sent_message: pair.sent_message,
+      has_diff: result.deterministic.action !== "approve",
+      diff_ratio: result.deterministic.diff_ratio,
+      fault: result.deterministic.fault,
+      fault_reason: result.deterministic.fault_reason,
+      diff_summary: a?.summary ?? null,
+      analysis: a,
+      model: result.versions.model_resolved,
+      review_prompt_version: result.versions.review_prompt_version,
+      openai_response_id: result.versions.response_id,
+      // OpenAI が失敗しても機械的な判定は保存する。理由だけ残す。
+      openai_error: result.error ? result.error.message : null,
+    });
+
+    // 保存・判定ともに完了。詳細は review_judgments に入っています。
+    return NextResponse.json({ result: "success" }, { status: 200 });
+  } catch (err) {
+    console.error("[/api/review POST]", err);
+    return fail(
+      500,
+      "internal_error",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+/* ══ POST 以外は 405 ═════════════════════ */
+
+const ALLOW = "POST";
+
+function methodNotAllowed(method: string): NextResponse {
+  return NextResponse.json(
+    {
+      result: "error",
+      code: "method_not_allowed",
+      message: `${method} は許可されていません。このエンドポイントは POST 専用です。`,
+    },
+    { status: 405, headers: { Allow: ALLOW } },
+  );
+}
+
+export function GET(): NextResponse {
+  return methodNotAllowed("GET");
+}
+export function PUT(): NextResponse {
+  return methodNotAllowed("PUT");
+}
+export function PATCH(): NextResponse {
+  return methodNotAllowed("PATCH");
+}
+export function DELETE(): NextResponse {
+  return methodNotAllowed("DELETE");
+}

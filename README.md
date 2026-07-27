@@ -1,20 +1,109 @@
-# AWS Amplify + PostgreSQL 構成
+# レビューAI 受信API
 
-Deluge は「①②をPOSTするだけ」。判定・保存・学習はすべてこちら側で行います。
+Zoho Desk から AIの下書きと送信済みの文面を受け取り、PostgreSQL に
+保存します。エンドポイントは **`/api/review` の1本だけ**です。
+
+---
+
+## API
+
+### POST /api/review
 
 ```
-Zoho Desk（返信送信）
-  │  POST /api/reviews  { ai_body, sent_body, prompt_version, ... }
-  ▼
-Amplify（Next.js / Lambda）
-  │  diff計算 → §7の切り分け → 保存        ※LLMは呼ばない。常に高速
-  ▼
-PostgreSQL（runs / reviews / memories / proposals）
-  │
-  │  別処理でまとめて分析（レビューが5件溜まったら）
-  ▼
-④レビュー学習AI → メモリ修正案 → 承認画面
+X-Api-Key: <HOOK_SECRET>
+Content-Type: application/json
+
+{
+  "ticket_id": "1234567",   必須  問い合わせID
+  "message":   "本文",       必須  メッセージ内容
+  "type":      "ai",         必須  "ai"（AI下書き）/ "sent"（送信済み）
+  "staff_id":  "890123",     任意  担当ユーザーのID
+  "memory":    7             任意  メモリのバージョン番号
+}
 ```
+
+ai と sent は別々に届きます。届くたびに次を行います。
+
+1. 受信メッセージを1行保存（`review_messages`）
+2. 同じ ticket_id に ai と sent が揃ったか確認
+3. 揃っていれば **OpenAI で差異を判定**
+4. 判定結果を保存（`review_judgments`）
+
+**レスポンスは成功か失敗かだけを返します。**
+
+```json
+{ "result": "success" }
+```
+
+```json
+{ "result": "error", "code": "missing_fields", "message": "…" }
+```
+
+判定の中身（差分・切り分け・要約）は `review_judgments` テーブルに
+保存され、レスポンスには含めません。ai だけ届いた段階（ペア未成立）でも、
+保存に成功していれば `success` を返します。
+
+### POST 以外
+
+**POST 専用です。** GET / PUT / PATCH / DELETE は 405 を返します。
+
+### 失敗レスポンス
+
+```json
+{ "result": "error", "code": "...", "message": "..." }
+```
+
+| code | HTTP | 意味 |
+|---|---|---|
+| `method_not_allowed` | 405 | POST 以外でアクセスした |
+| `unauthorized` | 401 | `X-Api-Key` が一致しない |
+| `invalid_json` | 400 | ボディをJSONとして解釈できない |
+| `missing_fields` | 400 | 必須項目が不足（`detail.missing`） |
+| `internal_error` | 500 | それ以外（DB接続失敗など） |
+
+**Deluge 側は `code` で分岐してください。** `message` の文言は
+変わりえます。
+
+---
+
+## テーブル
+
+2つです。
+
+### review_messages（受信ログ）
+
+| 列 | 型 | 内容 |
+|---|---|---|
+| `id` | UUID | レコードID |
+| `ticket_id` | TEXT | 問い合わせID |
+| `message` | TEXT | メッセージ内容 |
+| `type` | TEXT | ai / sent |
+| `staff_id` | TEXT | 担当ユーザーのID |
+| `memory_version` | INTEGER | メモリのバージョン番号 |
+| `received_at` | TIMESTAMPTZ | 受信日時 |
+| `updated_at` | TIMESTAMPTZ | DB更新日時（トリガーで自動） |
+
+### review_judgments（判定結果・1チケット1件）
+
+| 列 | 型 | 内容 |
+|---|---|---|
+| `id` | UUID | レコードID |
+| `ticket_id` | TEXT | 問い合わせID（UNIQUE） |
+| `staff_id` / `memory_version` | | ai 側の値 |
+| `ai_message` / `sent_message` | TEXT | 突き合わせた文面の控え |
+| `has_diff` | BOOLEAN | 差異があるか |
+| `diff_ratio` | NUMERIC | 修正量（0〜1） |
+| `fault` | TEXT | §7の切り分け |
+| `fault_reason` | TEXT | 切り分けの理由 |
+| `diff_summary` | TEXT | 差異の要約（OpenAI） |
+| `analysis` | JSONB | 差分・文体ルール候補（OpenAI） |
+| `model` / `review_prompt_version` / `openai_response_id` | | 実行時の版情報 |
+| `openai_error` | TEXT | OpenAI失敗時の理由 |
+| `judged_at` / `updated_at` | TIMESTAMPTZ | 判定日時 / 更新日時 |
+
+再送で sent が更新された場合、同じ ticket_id の判定は上書きされます。
+
+---
 
 ## セットアップ
 
@@ -22,100 +111,47 @@ PostgreSQL（runs / reviews / memories / proposals）
 psql "$DATABASE_URL" -f db/schema.sql
 ```
 
-Amplify のコンソールで環境変数を設定してください。
+環境変数（Amplify コンソール）:
 
 | 変数 | 用途 |
 |---|---|
 | `DATABASE_URL` | `postgres://user:pass@host:5432/db` |
 | `HOOK_SECRET` | Deluge からの `X-Api-Key` |
-| `OPENAI_API_KEY` | ④の分析でのみ使用 |
-| `PG_POOL_MAX` | 既定2。増やさないこと（後述） |
+| `PG_POOL_MAX` | 既定2。増やさないこと |
 
-**APIキーは Amplify の環境変数ではなく Secrets Manager / SSM Parameter Store に置いてください。** 環境変数はビルドログやコンソールから見えます。この案件では既にキーが2回漏れているので、ここは固めておく価値があります。
+**環境変数を変えたら再デプロイが必要です。**
 
-## Amplify（Lambda）固有の注意点
+---
 
-### 1. コネクションプール — 最重要
+## ローカルでの確認
 
-Amplify の SSR は Lambda で動きます。**同時実行数だけインスタンスが増え、それぞれがプールを持ちます。** `max: 10` にすると、同時実行30で300接続を要求してRDSが即死します。
-
-- 1インスタンスあたり `max: 1〜2`
-- `new Pool()` はモジュールスコープに置いてウォームスタート間で使い回す（`lib/pg.ts` で対応済み）
-- 同時実行が増える見込みなら **RDS Proxy を挟んでください。** Lambda + RDS では実質必須です
-
-### 2. Lambda のタイムアウト
-
-`/api/reviews` はLLMを呼ばないので数十ミリ秒で返ります。問題ありません。
-
-**問題は④の分析処理です。** OpenAIへの呼び出しで30〜60秒かかることがあり、Amplify のSSR Lambdaのタイムアウト上限に収まらない可能性があります。上限値は構成によって変わるので、実装前に確認してください。
-
-超える場合の選択肢は3つです。
-
-1. 別Lambda（EventBridge定期実行）に切り出す
-2. Step Functions で非同期化
-3. 分析を小分けにして複数回に分ける
-
-MVP段階なら、まず画面のボタンから同期実行して実測し、収まらなければ1に移すのが早いです。
-
-### 3. VPC 内のRDSに繋ぐ場合
-
-Lambda を VPC に入れると、そのままでは OpenAI API に出られません。NAT Gateway か VPC Endpoint が必要です。**④の分析だけが外向き通信をするので、そこだけ別Lambdaに切り出せばVPC構成を単純にできます。**
-
-RDS をパブリックサブネットに置いてIP制限、という手もありますが、会員の氏名を含むデータを持つので推奨しません。
-
-### 4. `runtime = "nodejs"` の指定
-
-`pg` はNode.jsランタイムが必要です。Edge Runtime では動きません。各 route.ts に `export const runtime = "nodejs";` を入れてあります。消さないでください。
-
-## Deluge 側
-
-これだけになります。
-
-```javascript
-payload = Map();
-payload.put("ticket_id", ticketId.toString());
-payload.put("staff_id", assigneeId.toString());
-payload.put("ai_body", ai_body);
-payload.put("sent_body", sent_body);
-payload.put("prompt_id", prompt_id);
-payload.put("prompt_version", prompt_version);
-payload.put("model", "gpt-5.6");
-
-headers = Map();
-headers.put("Content-Type","application/json");
-headers.put("X-Api-Key","<HOOK_SECRET>");
-
-resp = invokeurl
-[
-	url :"https://<amplify-domain>/api/reviews"
-	type :POST
-	parameters:payload.toString()
-	headers:headers
-];
+```bash
+npm install
+cp .env.example .env.local     # DATABASE_URL を書く
+npm run dev
+npm run seed                    # ai→sent を2組投入
 ```
 
-**ここで `payload.toString()` に戻せます。** 自前サーバー側で受けるので、Deluge のエスケープが多少崩れてもこちらで正規化できるためです。ただし念のため、本文のダブルクォートだけは Deluge 側で全角に置換しておくと安全です。
+詳細は `DEV.md`、RDSの準備は `db/SETUP.md`、デバッグは `DEBUG.md`。
 
-```javascript
-ai_body = ai_body.replaceAll("\"","”");
-sent_body = sent_body.replaceAll("\"","”");
+---
+
+## いま使っていないファイル
+
+`lib/` に判定ロジック（diff・切り分け）と ④レビュー学習AI の分析が
+入っていますが、**現在の `/api/review` からは参照していません。**
+保存に特化した今の仕様では不要ですが、次の段階（差分の分析・メモリ更新）
+で使うため残しています。
+
+```
+lib/store.ts              ← いま使っているのはこれと lib/pg.ts だけ
+lib/pg.ts
+
+lib/diff.ts               差分計算（後で使う）
+lib/messages.ts           突き合わせ＋判定（後で使う）
+lib/review.ts             OpenAI呼び出し（後で使う）
+lib/learning/*            ④の分析（後で使う）
+lib/db.ts / openai.ts / types.ts
 ```
 
-Deluge で確定した制約（バックスラッシュが作れない、`"\\n"` が壊れる等）は、この構成では**もう踏みません。** JSONを手で組み立てる必要がなくなります。
-
-## SQLite版からの主な変更
-
-| | SQLite版 | PostgreSQL版 |
-|---|---|---|
-| 切り分け結果 | 分析時に都度計算 | **書き込み時に `fault` 列へ確定** |
-| §7の指標 | アプリ側で集計 | `metrics_by_prompt_version` ビュー |
-| 制約 | なし | `CHECK` で不正値を弾く |
-| ID | アプリで uuid 生成 | `gen_random_uuid()` |
-
-`fault` を保存時に確定させたのが実質的な改善です。判定はルールベースで決定的なので、DBに事実として残せます。**SQLでそのまま「判断ミス率」「生成ミス率」が出せるようになりました。**
-
-## 残っている課題
-
-- **課金** — 切り分けテストで「You exceeded your current quota」が出ています。これが解決しないと④の分析は動きません
-- **`decision_ok`** — §3-4への追加が大山さん承認待ちのままです。無いと判断ミスの切り分け精度が落ちます
-- **個人情報** — `runs.ai_body` / `reviews.sent_body` に会員名がそのまま入ります。RDSの暗号化を有効にし、§6-3の解釈を確定させてください
+不要なら削除して構いません。

@@ -1,173 +1,115 @@
--- セッティングAI ④レビュー学習
--- PostgreSQL スキーマ
+-- レビューAI：受信メッセージ ＋ 判定結果
 --
--- 実行: psql "$DATABASE_URL" -f db/schema.sql
--- 何度実行しても安全です（IF NOT EXISTS）。
+-- 1. API に POST された ai / sent をそのまま1行ずつ保存（review_messages）
+-- 2. 同じ ticket_id で ai と sent が揃ったら OpenAI が差異を判定
+-- 3. 判定結果を1行保存（review_judgments）
+--
+--   実行: psql "$DATABASE_URL" -f db/schema.sql
+--   何度実行しても安全です（IF NOT EXISTS）。
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;  -- gen_random_uuid()
 
 -- ════════════════════════════════════════
--- runs : AIが下書きを生成した1回分
+-- 受信メッセージ
+--   ai と sent が別々に届くので、同じ ticket_id で2レコードできます。
 -- ════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS runs (
-  decision_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+CREATE TABLE IF NOT EXISTS review_messages (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),  -- レコードID
 
-  ticket_id        TEXT NOT NULL,
-  deal_id          TEXT,
-  staff_id         TEXT NOT NULL,
+  ticket_id       TEXT NOT NULL,                 -- 問い合わせID
+  message         TEXT NOT NULL,                 -- メッセージ内容
+  type            TEXT NOT NULL                  -- ai / sent
+                  CHECK (type IN ('ai', 'sent')),
+  staff_id        TEXT,                          -- 担当ユーザーのID
+  memory_version  INTEGER,                       -- メモリのバージョン番号
 
-  status           TEXT NOT NULL DEFAULT 'pending_review'
-                   CHECK (status IN ('pending_review','escalated','reviewed','failed')),
-
-  -- AIが作った下書き本文
-  ai_body          TEXT NOT NULL,
-
-  -- ①判断AIの出力。§6-6 の rationale はここに丸ごと入る
-  decision         JSONB,
-  -- ②生成AIの出力（used_memory_rules を含む）
-  draft            JSONB,
-  context_pack     JSONB,
-
-  -- どのプロンプト版・どのモデルが生成したか。
-  -- これが無いと「精度が落ちたのはメモリのせいか、プロンプトが
-  -- 書き換わったせいか」を後から切り分けられません。
-  prompt_id        TEXT,
-  prompt_version   TEXT,
-  model            TEXT,
-
-  escalate_reason  TEXT,
-  error            TEXT,
-
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+  received_at     TIMESTAMPTZ NOT NULL DEFAULT now(),  -- 受信日時
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()   -- DB更新日時
 );
 
-CREATE INDEX IF NOT EXISTS idx_runs_ticket  ON runs (ticket_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_runs_staff   ON runs (staff_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_runs_prompt  ON runs (staff_id, prompt_version);
+CREATE INDEX IF NOT EXISTS idx_review_messages_ticket
+  ON review_messages (ticket_id, type, received_at);
+
+CREATE INDEX IF NOT EXISTS idx_review_messages_staff
+  ON review_messages (staff_id, received_at DESC);
 
 -- ════════════════════════════════════════
--- reviews : コーディネーターが実際に送った文面との突き合わせ
---           §3-4 Review Record
+-- 判定結果
+--   ai と sent が揃ったときに1行作られます。
+--   ticket_id ごとに1件（UNIQUE）。再判定時は上書きします。
 -- ════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS reviews (
-  decision_id            UUID PRIMARY KEY
-                         REFERENCES runs(decision_id) ON DELETE CASCADE,
-  staff_id               TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS review_judgments (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),  -- レコードID
 
-  action                 TEXT NOT NULL
-                         CHECK (action IN ('approve','edit','reject')),
-  score                  SMALLINT CHECK (score BETWEEN 1 AND 5),
-  comment                TEXT,
+  ticket_id       TEXT NOT NULL UNIQUE,          -- 問い合わせID（1チケット1判定）
+  staff_id        TEXT,                          -- 担当ユーザーのID
+  memory_version  INTEGER,                       -- ai を生成したメモリの版数
 
-  ai_body                TEXT NOT NULL,
-  sent_body              TEXT NOT NULL,
-  -- 修正の「大きさ」。学習の要否を決める閾値ではありません（§7の指標用）
-  diff_ratio             NUMERIC(5,3) NOT NULL,
+  -- 突き合わせた元の文面（後から追跡できるよう控えを持つ）
+  ai_message      TEXT NOT NULL,
+  sent_message    TEXT NOT NULL,
 
-  -- §7 の切り分け結果。書き込み時に確定させます。
-  -- 判定はルールベースなのでLLMを介さず、ここに事実として残せます。
-  fault                  TEXT NOT NULL
-                         CHECK (fault IN ('judgment','generation','none','unknown')),
-  fault_reason           TEXT NOT NULL,
+  -- ── 機械的に決まる部分（OpenAI不要）──────
+  has_diff        BOOLEAN NOT NULL,              -- 差異があるか
+  diff_ratio      NUMERIC(5,3) NOT NULL,         -- 修正量（0〜1）
 
-  -- §3-4 への追加分。承認画面から来た場合のみ入る
-  decision_ok            BOOLEAN,
-  corrected_next_action  TEXT,
-  corrected_recipient    TEXT CHECK (corrected_recipient IN ('男性','女性')),
+  -- ── §7 の切り分け ──────────────────────
+  -- judgment = 判断AIのミス / generation = 生成AIのミス
+  -- none = 修正なし / unknown = 判断保留
+  fault           TEXT NOT NULL
+                  CHECK (fault IN ('judgment','generation','none','unknown')),
+  fault_reason    TEXT,
 
-  reviewed_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-  -- ④が分析済みかどうか。同じレビューから何度もルールを作らないための印
-  analyzed_at            TIMESTAMPTZ
+  -- ── OpenAI が言語化した部分 ──────────────
+  diff_summary    TEXT,                          -- 差異の要約（一文）
+  analysis        JSONB,                         -- 差分・文体ルール候補などの構造化データ
+
+  -- ── 実行時の版情報（再現・比較用）────────
+  model           TEXT,                          -- 実際に動いたモデル
+  review_prompt_version TEXT,                     -- レビュープロンプトの版
+  openai_response_id    TEXT,                     -- OpenAI のレスポンスID
+  openai_error    TEXT,                          -- OpenAI 呼び出しが失敗した場合の理由
+
+  judged_at       TIMESTAMPTZ NOT NULL DEFAULT now(),  -- 判定日時
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()   -- DB更新日時
 );
 
--- ④のバッチ取得用。未分析のものを古い順に引く
-CREATE INDEX IF NOT EXISTS idx_reviews_unanalyzed
-  ON reviews (staff_id, reviewed_at) WHERE analyzed_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_reviews_fault
-  ON reviews (staff_id, fault, reviewed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_review_judgments_staff
+  ON review_judgments (staff_id, judged_at DESC);
 
--- ════════════════════════════════════════
--- memories : §3-5 スタッフ個別メモリ
--- ════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS memories (
-  staff_id    TEXT PRIMARY KEY,
-  version     INTEGER NOT NULL DEFAULT 0,
-  data        JSONB NOT NULL,
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+CREATE INDEX IF NOT EXISTS idx_review_judgments_fault
+  ON review_judgments (staff_id, fault, judged_at DESC);
 
--- 監査用。いつ誰の承認で版が上がったかを残す
-CREATE TABLE IF NOT EXISTS memory_versions (
-  staff_id     TEXT NOT NULL,
-  version      INTEGER NOT NULL,
-  data         JSONB NOT NULL,
-  proposal_id  UUID,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (staff_id, version)
-);
+-- ── updated_at を自動更新するトリガー ──────
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
--- ════════════════════════════════════════
--- proposals : ④が出すメモリ修正案
---             AIは適用しません。承認画面からのみ反映されます（§3-5 / §5）
--- ════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS proposals (
-  proposal_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  staff_id        TEXT NOT NULL,
+DROP TRIGGER IF EXISTS trg_review_messages_updated_at ON review_messages;
+CREATE TRIGGER trg_review_messages_updated_at
+  BEFORE UPDATE ON review_messages
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-  type            TEXT NOT NULL CHECK (type IN ('add','update','retire','conflict')),
-  target          TEXT NOT NULL CHECK (target IN ('judgment_rules','style_rules','ng_list')),
-  target_rule_id  TEXT,
-  rule            JSONB,
+DROP TRIGGER IF EXISTS trg_review_judgments_updated_at ON review_judgments;
+CREATE TRIGGER trg_review_judgments_updated_at
+  BEFORE UPDATE ON review_judgments
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-  -- 本人が承認判断するための根拠。これが空の提案は出しません
-  evidence        JSONB NOT NULL DEFAULT '[]'::jsonb,
-  note            TEXT NOT NULL,
-
-  status          TEXT NOT NULL DEFAULT 'pending'
-                  CHECK (status IN ('pending','approved','rejected')),
-
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  decided_at      TIMESTAMPTZ
-);
-
-CREATE INDEX IF NOT EXISTS idx_proposals_pending
-  ON proposals (staff_id, created_at DESC) WHERE status = 'pending';
-
--- ════════════════════════════════════════
--- rule_usage : ルールの適用実績
---
--- §3-5 の契約（メモリのJSON構造）を変えずに引退判定をするため、
--- メモリ本体ではなく別テーブルに持ちます。
--- Draft の used_memory_rules から加算します。
--- ════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS rule_usage (
-  staff_id      TEXT NOT NULL,
-  rule_id       TEXT NOT NULL,
-  hits          INTEGER NOT NULL DEFAULT 0,
-  last_used_at  TIMESTAMPTZ,
-  PRIMARY KEY (staff_id, rule_id)
-);
-
--- ════════════════════════════════════════
--- 便利ビュー：§7 の指標をプロンプト版ごとに出す
---
--- 版を混ぜた平均は意味を持ちません。プロンプトを変えた前後で
--- 無修正承認率がどう動いたかは、この分割で初めて見えます。
--- ════════════════════════════════════════
-CREATE OR REPLACE VIEW metrics_by_prompt_version AS
+-- ── 参考ビュー：メッセージと判定を横並びで見る ──
+CREATE OR REPLACE VIEW review_overview AS
 SELECT
-  r.staff_id,
-  r.prompt_id,
-  r.prompt_version,
-  r.model,
-  COUNT(*)                                             AS reviews,
-  ROUND(AVG(CASE WHEN rv.action = 'approve' THEN 1 ELSE 0 END)::numeric, 3) AS approve_rate,
-  ROUND(AVG(rv.diff_ratio), 3)                         AS diff_ratio_avg,
-  ROUND(AVG(CASE WHEN rv.fault = 'judgment'   THEN 1 ELSE 0 END)::numeric, 3) AS judgment_fault_rate,
-  ROUND(AVG(CASE WHEN rv.fault = 'generation' THEN 1 ELSE 0 END)::numeric, 3) AS generation_fault_rate,
-  MIN(rv.reviewed_at)                                  AS first_reviewed_at,
-  MAX(rv.reviewed_at)                                  AS last_reviewed_at
-FROM reviews rv
-JOIN runs r ON r.decision_id = rv.decision_id
-GROUP BY r.staff_id, r.prompt_id, r.prompt_version, r.model;
+  j.ticket_id,
+  j.staff_id,
+  j.memory_version,
+  j.has_diff,
+  j.diff_ratio,
+  j.fault,
+  j.diff_summary,
+  j.model,
+  j.judged_at
+FROM review_judgments j
+ORDER BY j.judged_at DESC;
