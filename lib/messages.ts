@@ -313,7 +313,7 @@ async function handleWithDb(
   const { ratio, action, classified } = evaluate(draft.body, m.body, effectiveStaff);
 
   const ids = await tx(async (c) => {
-    const runRes = await c.query<{ decision_id: string }>(
+    const runRes = (await c.query(
       `INSERT INTO runs
          (ticket_id, staff_id, status, ai_body,
           memory_version, prompt_id, prompt_version, model)
@@ -328,8 +328,8 @@ async function handleWithDb(
         draft.prompt_version,
         draft.model,
       ],
-    );
-    const decisionId = runRes.rows[0]!.decision_id;
+    )) as { rows: Array<Record<string, unknown>> };
+    const decisionId = (runRes.rows[0] as { decision_id: string }).decision_id;
 
     await c.query(
       `INSERT INTO reviews
@@ -348,20 +348,23 @@ async function handleWithDb(
       ],
     );
 
-    const sentRes = await c.query<{ message_id: string }>(
+    const sentRes = (await c.query(
       `INSERT INTO messages
          (ticket_id, kind, body, staff_id, memory_version, paired_at, decision_id)
        VALUES ($1,'sent',$2,$3,$4,now(),$5)
        RETURNING message_id`,
       [m.ticket_id, m.body, effectiveStaff, draft.memory_version, decisionId],
-    );
+    )) as { rows: Array<Record<string, unknown>> };
 
     await c.query(
       `UPDATE messages SET paired_at = now(), decision_id = $2 WHERE message_id = $1`,
       [draft.message_id, decisionId],
     );
 
-    return { sentId: sentRes.rows[0]!.message_id, decisionId };
+    return {
+      sentId: (sentRes.rows[0] as { message_id: string }).message_id,
+      decisionId,
+    };
   });
 
   if (normalizeBody(draft.body) === normalizeBody(m.body)) {

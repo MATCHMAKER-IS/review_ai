@@ -11,6 +11,7 @@ import { emptyMemory } from "./types";
 /* ─── レビュー ───────────────────────────── */
 
 interface ReviewRow {
+  [k: string]: unknown;
   decision_id: string;
   staff_id: string;
   action: string;
@@ -227,6 +228,7 @@ export async function memoryHistory(
 /* ─── 提案 ───────────────────────────────── */
 
 interface ProposalRow {
+  [k: string]: unknown;
   proposal_id: string;
   staff_id: string;
   type: string;

@@ -114,7 +114,6 @@ export async function POST(req: Request): Promise<NextResponse> {
       400,
       "missing_fields",
       `必須項目が不足しています: ${missing.join(", ")}`,
-      { missing, received: Object.keys(body) },
     );
   }
 
