@@ -3,21 +3,22 @@ frontend:
   phases:
     preBuild:
       commands:
-        # ── 診断 ──────────────────────────────
-        # ビルドが「app ディレクトリが無い」で落ちた場合、
-        # ここの出力で何がリポジトリに入っているか確認できます。
-        # 問題が解決したらこの3行は消して構いません。
-        - echo "--- working dir ---" && pwd
-        - echo "--- root files ---" && ls -la
-        - echo "--- app dir ---" && ls -la app 2>/dev/null || echo "!!! app ディレクトリが存在しません !!!"
-        # ── 依存インストール ──────────────────
-        # package-lock.json があれば npm ci（再現性が高い）。
-        # 無ければ npm install にフォールバックしてビルドを止めない。
         - if [ -f package-lock.json ]; then npm ci; else npm install; fi
     build:
       commands:
-        # DATABASE_URL は Amplify コンソールの環境変数から注入されます。
-        # ビルド時にDBへは接続しません（接続はリクエスト時のみ）。
+        # ── 環境変数を実行時(Lambda)へ渡す ──────────────────
+        # Amplify コンソールの環境変数は「ビルド時」には見えますが、
+        # Next.js SSR の「実行時(Lambda)」には自動では渡りません。
+        # ここで .env.production に書き出しておくと、next build が
+        # サーバー用バンドルに取り込み、実行時にも process.env で
+        # 読めるようになります。
+        #
+        # 値そのものはログに出しません（キーが漏れるため）。
+        # 設定されているかどうかだけ echo で確認します。
+        - echo "DATABASE_URL set? -> $([ -n \"$DATABASE_URL\" ] && echo yes || echo NO)"
+        - echo "OPENAI_API_KEY set? -> $([ -n \"$OPENAI_API_KEY\" ] && echo yes || echo NO)"
+        - echo "HOOK_SECRET set? -> $([ -n \"$HOOK_SECRET\" ] && echo yes || echo NO)"
+        - env | grep -E '^(DATABASE_URL|OPENAI_API_KEY|OPENAI_MODEL|HOOK_SECRET|PG_POOL_MAX)=' >> .env.production || true
         - npm run build
   artifacts:
     baseDirectory: .next
