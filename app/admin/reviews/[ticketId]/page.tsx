@@ -1,4 +1,5 @@
-import { getJudgment, getMessagesByTicket } from "@/lib/store";
+import { getJudgment, getMessagesByTicket, listComments } from "@/lib/store";
+import { postComment } from "../actions";
 import { card, label, pre, TypeBadge, HighlightedBody } from "../../_components/ui";
 
 export const runtime = "nodejs";
@@ -21,10 +22,12 @@ export default async function ReviewDetailPage({
 
   let j;
   let messages;
+  let comments;
   try {
-    [j, messages] = await Promise.all([
+    [j, messages, comments] = await Promise.all([
       getJudgment(decoded),
       getMessagesByTicket(decoded),
+      listComments(decoded),
     ]);
   } catch (err) {
     return (
@@ -167,6 +170,98 @@ export default async function ReviewDetailPage({
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* コメント（人が残すメモ）*/}
+      <div style={card}>
+        <div style={{ ...label, marginBottom: 10 }}>
+          コメント（{comments.length}）
+        </div>
+
+        {comments.length === 0 ? (
+          <p style={{ fontSize: 13, color: "#a8a29e", margin: "0 0 14px" }}>
+            まだコメントはありません。
+          </p>
+        ) : (
+          <div style={{ marginBottom: 14 }}>
+            {comments.map((c) => (
+              <div
+                key={c.id}
+                style={{
+                  padding: "10px 0",
+                  borderTop: "1px solid #f0efee",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "baseline",
+                    marginBottom: 4,
+                  }}
+                >
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>
+                    {c.author || "名無し"}
+                  </span>
+                  <span style={{ fontSize: 12, color: "#a8a29e" }}>
+                    {new Date(c.created_at).toLocaleString("ja-JP")}
+                  </span>
+                </div>
+                <p style={{ ...pre, fontSize: 14 }}>{c.body}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 投稿フォーム */}
+        <form action={postComment} style={{ borderTop: "1px solid #f0efee", paddingTop: 12 }}>
+          <input type="hidden" name="ticket_id" value={j.ticket_id} />
+          <input
+            type="text"
+            name="author"
+            placeholder="お名前（任意）"
+            style={{
+              width: 200,
+              padding: "6px 8px",
+              border: "1px solid #d6d3d1",
+              borderRadius: 6,
+              fontSize: 14,
+              marginBottom: 8,
+              display: "block",
+            }}
+          />
+          <textarea
+            name="body"
+            required
+            rows={3}
+            placeholder="コメントを入力…"
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "8px 10px",
+              border: "1px solid #d6d3d1",
+              borderRadius: 6,
+              fontSize: 14,
+              fontFamily: "inherit",
+              resize: "vertical",
+            }}
+          />
+          <button
+            type="submit"
+            style={{
+              marginTop: 8,
+              padding: "7px 18px",
+              background: "#1c1917",
+              color: "#fff",
+              border: "none",
+              borderRadius: 6,
+              fontSize: 14,
+              cursor: "pointer",
+            }}
+          >
+            コメントする
+          </button>
+        </form>
       </div>
 
       {/* OpenAI の生レスポンス（監査用・既定は畳む） */}

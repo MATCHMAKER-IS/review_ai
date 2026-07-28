@@ -519,3 +519,54 @@ export async function getMessagesByTicket(
     received_at: r.received_at.toISOString(),
   }));
 }
+
+/* ─── コメント（判定へのメモ）───────────────── */
+
+export interface Comment {
+  id: string;
+  ticket_id: string;
+  author: string | null;
+  body: string;
+  created_at: string;
+}
+
+/** あるチケットのコメントを古い順に取得します。 */
+export async function listComments(ticketId: string): Promise<Comment[]> {
+  const rows = await query<{
+    id: string;
+    ticket_id: string;
+    author: string | null;
+    body: string;
+    created_at: Date;
+  }>(
+    `SELECT id, ticket_id, author, body, created_at
+       FROM review_comments
+      WHERE ticket_id = $1
+      ORDER BY created_at ASC`,
+    [ticketId],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    ticket_id: r.ticket_id,
+    author: r.author,
+    body: r.body,
+    created_at: r.created_at.toISOString(),
+  }));
+}
+
+/** コメントを1件追加します。body は空にできません。 */
+export async function addComment(
+  ticketId: string,
+  body: string,
+  author: string | null,
+): Promise<{ id: string }> {
+  const trimmed = body.trim();
+  if (!trimmed) throw new Error("コメント本文が空です");
+  const r = await queryOne<{ id: string }>(
+    `INSERT INTO review_comments (ticket_id, author, body)
+     VALUES ($1, $2, $3) RETURNING id`,
+    [ticketId, author?.trim() || null, trimmed],
+  );
+  if (!r) throw new Error("コメントの保存に失敗しました");
+  return { id: r.id };
+}

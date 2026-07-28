@@ -113,6 +113,22 @@ CREATE TRIGGER trg_review_judgments_updated_at
   BEFORE UPDATE ON review_judgments
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- ════════════════════════════════════════
+-- コメント（人が判定結果に残すメモ）
+--   1つの判定(ticket_id)に複数のコメントを時系列で残せます。
+--   誰が書いたかの author は任意。画面から入力します。
+-- ════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS review_comments (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticket_id   TEXT NOT NULL,               -- どの判定へのコメントか
+  author      TEXT,                        -- 記入者（任意）
+  body        TEXT NOT NULL,               -- コメント本文
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_comments_ticket
+  ON review_comments (ticket_id, created_at);
+
 -- ── 参考ビュー：メッセージと判定を横並びで見る ──
 CREATE OR REPLACE VIEW review_overview AS
 SELECT
