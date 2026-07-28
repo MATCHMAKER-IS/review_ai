@@ -85,7 +85,7 @@ export interface ReviewResult {
  * このプロンプトを書き換えたら必ず上げてください。
  * Managed Prompt は廃止予定のため、版管理は自前で持ちます。
  */
-export const REVIEW_PROMPT_VERSION = "2.3.0";
+export const REVIEW_PROMPT_VERSION = "2.4.0";
 
 const INSTRUCTIONS = [
   "あなたは男女のマッチングのコーディネーター業務を支援するAIの振り返り担当です。",
@@ -98,6 +98,11 @@ const INSTRUCTIONS = [
   "  種類が違えば別の要素として分けて挙げてください。",
   "- before は①の該当箇所、after は②の該当箇所。追加された表現は",
   "  before を空文字、削除された表現は after を空文字にしてください。",
+  "- 変更のあった箇所は、その文の区切り（句点「。」や読点「、」）まで",
+  "  含めた一続きの単位で抽出してください。語尾だけを途中で切らず、",
+  "  文として意味の通る範囲で before / after を作ります。",
+  "  例: ①「承知いたしました。」→ ②「承知しました(^^♪」のように、",
+  "  句点を含めて対応させる。変更に関係のない他の文の句読点は含めません。",
   "- 変更が無ければ diffs は空配列にしてください。",
   "- 次の2種類の固有名詞の違いは、差分に含めないでください。",
   "  文体の癖ではなく、単なる差し替えだからです。",
@@ -135,8 +140,8 @@ const INSTRUCTIONS = [
   JSON.stringify(
     {
       diffs: [
-        { before: "①の該当箇所", after: "②の該当箇所", kind: "文末表現 など" },
-        { before: "別の該当箇所", after: "変更後", kind: "敬語 など" },
+        { before: "承知いたしました。", after: "承知しました(^^♪", kind: "文末表現" },
+        { before: "別の該当箇所（句読点まで）", after: "変更後", kind: "敬語 など" },
       ],
       substance_changed: false,
       generation_mistake: true,
