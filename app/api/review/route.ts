@@ -180,6 +180,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       diff_count: diffCount,
       diff_pairs: diffPairs,
       analysis: a,
+      openai_raw: result.raw,
       model: result.versions.model_resolved,
       review_prompt_version: result.versions.review_prompt_version,
       openai_response_id: result.versions.response_id,

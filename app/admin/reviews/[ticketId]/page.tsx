@@ -1,5 +1,5 @@
 import { getJudgment, getMessagesByTicket } from "@/lib/store";
-import { card, label, pre, TypeBadge } from "../../_components/ui";
+import { card, label, pre, TypeBadge, HighlightedBody } from "../../_components/ui";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -115,13 +115,29 @@ export default async function ReviewDetailPage({
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div style={card}>
           <div style={label}>① AIの下書き</div>
-          <p style={pre}>{j.ai_message}</p>
+          <HighlightedBody
+            text={j.ai_message}
+            marks={j.diffs.map((d) => d.before)}
+            color="before"
+          />
         </div>
         <div style={card}>
           <div style={label}>② 実際に送信</div>
-          <p style={pre}>{j.sent_message}</p>
+          <HighlightedBody
+            text={j.sent_message}
+            marks={j.diffs.map((d) => d.after)}
+            color="after"
+          />
         </div>
       </div>
+
+      {j.diffs.length > 0 && (
+        <p style={{ fontSize: 12, color: "#78716c", margin: "-4px 0 16px" }}>
+          ①は<mark style={{ background: "#fee2e2", color: "#991b1b", padding: "1px 4px", borderRadius: 3 }}>変更前</mark>、
+          ②は<mark style={{ background: "#dcfce7", color: "#166534", padding: "1px 4px", borderRadius: 3 }}>変更後</mark>
+          の箇所を色付けしています。
+        </p>
+      )}
 
       {/* このチケットの受信ログ */}
       {messages.length > 0 && (
@@ -152,6 +168,29 @@ export default async function ReviewDetailPage({
           </tbody>
         </table>
       </div>
+
+      {/* OpenAI の生レスポンス（監査用・既定は畳む） */}
+      {j.openai_raw != null && (
+        <details style={card}>
+          <summary style={{ ...label, cursor: "pointer", marginBottom: 0 }}>
+            OpenAI レスポンス全文（JSON）
+          </summary>
+          <pre
+            style={{
+              ...pre,
+              marginTop: 12,
+              fontFamily: "ui-monospace, monospace",
+              fontSize: 12,
+              background: "#f5f5f4",
+              padding: 12,
+              borderRadius: 6,
+              overflowX: "auto",
+            }}
+          >
+            {JSON.stringify(j.openai_raw, null, 2)}
+          </pre>
+        </details>
+      )}
     </>
   );
 }

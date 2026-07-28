@@ -119,6 +119,7 @@ export interface JudgmentToSave {
   diff_count: number;           // 差分の個数
   diff_pairs: string | null;    // 「① before → after」形式の目視用
   analysis: unknown | null;
+  openai_raw: unknown | null;   // OpenAI レスポンス全文
   model: string | null;
   review_prompt_version: string | null;
   openai_response_id: string | null;
@@ -135,10 +136,10 @@ export async function saveJudgment(j: JudgmentToSave): Promise<{ id: string }> {
     `INSERT INTO review_judgments
        (ticket_id, staff_id, memory_version, ai_message, sent_message,
         has_diff, diff_ratio, fault, fault_reason, diff_summary,
-        diffs, diff_count, diff_pairs, analysis,
+        diffs, diff_count, diff_pairs, analysis, openai_raw,
         model, review_prompt_version, openai_response_id, openai_error)
      VALUES
-       ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
      ON CONFLICT (ticket_id) DO UPDATE SET
        staff_id              = EXCLUDED.staff_id,
        memory_version        = EXCLUDED.memory_version,
@@ -153,6 +154,7 @@ export async function saveJudgment(j: JudgmentToSave): Promise<{ id: string }> {
        diff_count            = EXCLUDED.diff_count,
        diff_pairs            = EXCLUDED.diff_pairs,
        analysis              = EXCLUDED.analysis,
+       openai_raw            = EXCLUDED.openai_raw,
        model                 = EXCLUDED.model,
        review_prompt_version = EXCLUDED.review_prompt_version,
        openai_response_id    = EXCLUDED.openai_response_id,
@@ -174,6 +176,7 @@ export async function saveJudgment(j: JudgmentToSave): Promise<{ id: string }> {
       j.diff_count,
       j.diff_pairs,
       j.analysis === null ? null : JSON.stringify(j.analysis),
+      j.openai_raw === null ? null : JSON.stringify(j.openai_raw),
       j.model,
       j.review_prompt_version,
       j.openai_response_id,
@@ -307,6 +310,7 @@ export interface JudgmentDetail {
   fault_reason: string | null;
   diff_summary: string | null;
   analysis: unknown;
+  openai_raw: unknown;
   model: string | null;
   review_prompt_version: string | null;
   openai_response_id: string | null;
@@ -334,6 +338,7 @@ export async function getJudgment(
     fault_reason: string | null;
     diff_summary: string | null;
     analysis: unknown;
+    openai_raw: unknown;
     model: string | null;
     review_prompt_version: string | null;
     openai_response_id: string | null;
@@ -360,6 +365,7 @@ export async function getJudgment(
     fault_reason: r.fault_reason,
     diff_summary: r.diff_summary,
     analysis: r.analysis,
+    openai_raw: r.openai_raw,
     model: r.model,
     review_prompt_version: r.review_prompt_version,
     openai_response_id: r.openai_response_id,

@@ -66,6 +66,8 @@ export interface ReviewResult {
   };
   /** LLMが言語化した部分 */
   analysis: ReviewAnalysis | null;
+  /** OpenAI から受信したレスポンス全文（監査・再現用）。呼ばなかった場合は null */
+  raw: unknown | null;
   /** 再現・比較のために残す版情報 */
   versions: {
     response_id: string | null;
@@ -83,7 +85,7 @@ export interface ReviewResult {
  * このプロンプトを書き換えたら必ず上げてください。
  * Managed Prompt は廃止予定のため、版管理は自前で持ちます。
  */
-export const REVIEW_PROMPT_VERSION = "2.1.0";
+export const REVIEW_PROMPT_VERSION = "2.3.0";
 
 const INSTRUCTIONS = [
   "あなたは男女のマッチングのコーディネーター業務を支援するAIの振り返り担当です。",
@@ -97,6 +99,17 @@ const INSTRUCTIONS = [
   "- before は①の該当箇所、after は②の該当箇所。追加された表現は",
   "  before を空文字、削除された表現は after を空文字にしてください。",
   "- 変更が無ければ diffs は空配列にしてください。",
+  "- 次の2種類の固有名詞の違いは、差分に含めないでください。",
+  "  文体の癖ではなく、単なる差し替えだからです。",
+  "  diffs に入れず、変更の件数にも数えないでください。",
+  "  (a) 担当者（差出人）の氏名・署名。",
+  "      担当者の引き継ぎで差出人が変わることがあります。",
+  "      例: 署名が『小林 麻依』→『田中 太郎』でも差分にしない。",
+  "  (b) 宛名（相手のお客様・会員の氏名）。",
+  "      同じ文面を別の会員宛に差し替えて使うことがあります。",
+  "      例: 宛名が『藤原 達之 様』→『山田 花子 様』でも差分にしない。",
+  "  文末表現・敬語・顔文字・語順など、氏名以外の変更は",
+  "  これまでどおり通常どおり抽出してください。",
   "",
   "【判定の指針】",
   "- substance_changed は、宛先・伝えている事実・依頼内容が変わったかどうか。",
@@ -195,6 +208,7 @@ export async function reviewPair(args: {
       fault_reason: classified.reason,
     },
     analysis: null,
+    raw: null,
     versions: {
       response_id: null,
       model_requested: model,
@@ -266,6 +280,7 @@ export async function reviewPair(args: {
       const e = data.error as { message?: string } | undefined;
       return {
         ...base,
+        raw: data,
         error: {
           code: "openai_error",
           message: e?.message ?? `OpenAI が ${res.status} を返しました`,
@@ -324,7 +339,7 @@ export async function reviewPair(args: {
       };
     }
 
-    return { ...base, versions, analysis: validate(parsed), error: null };
+    return { ...base, versions, analysis: validate(parsed), raw: data, error: null };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const aborted = msg.includes("abort") || msg.includes("Abort");

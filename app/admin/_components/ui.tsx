@@ -261,3 +261,94 @@ export function TableCard({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
+/**
+ * 本文中の該当箇所を色付けして表示します。
+ *
+ * diffs の before（①用）または after（②用）に一致する部分文字列を探し、
+ * その箇所だけ背景色を付けます。空文字（追加・削除で相方が無い場合）は
+ * 対象にしません。単純な部分文字列一致なので、同じ語が複数あれば
+ * すべて着色されます（実務上はほぼ問題になりません）。
+ */
+export function HighlightedBody({
+  text,
+  marks,
+  color,
+}: {
+  text: string;
+  marks: string[];
+  color: "before" | "after";
+}) {
+  const targets = Array.from(new Set(marks.filter((m) => m && m.length > 0)));
+  if (targets.length === 0) {
+    return <p style={pre}>{text}</p>;
+  }
+
+  // 一致箇所の範囲を集める
+  type Range = { start: number; end: number };
+  const ranges: Range[] = [];
+  for (const t of targets) {
+    let from = 0;
+    while (true) {
+      const idx = text.indexOf(t, from);
+      if (idx === -1) break;
+      ranges.push({ start: idx, end: idx + t.length });
+      from = idx + t.length;
+    }
+  }
+  if (ranges.length === 0) {
+    return <p style={pre}>{text}</p>;
+  }
+
+  // 範囲を昇順に並べ、重なりを吸収
+  ranges.sort((a, b) => a.start - b.start);
+  const merged: Range[] = [];
+  for (const r of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && r.start <= last.end) {
+      last.end = Math.max(last.end, r.end);
+    } else {
+      merged.push({ ...r });
+    }
+  }
+
+  const bg = color === "before" ? "#fee2e2" : "#dcfce7";
+  const fg = color === "before" ? "#991b1b" : "#166534";
+
+  // テキストを「通常 / 着色」の断片に分割
+  const parts: Array<{ text: string; hit: boolean }> = [];
+  let cursor = 0;
+  for (const r of merged) {
+    if (r.start > cursor) {
+      parts.push({ text: text.slice(cursor, r.start), hit: false });
+    }
+    parts.push({ text: text.slice(r.start, r.end), hit: true });
+    cursor = r.end;
+  }
+  if (cursor < text.length) {
+    parts.push({ text: text.slice(cursor), hit: false });
+  }
+
+  return (
+    <p style={pre}>
+      {parts.map((p, i) =>
+        p.hit ? (
+          <mark
+            key={i}
+            style={{
+              background: bg,
+              color: fg,
+              padding: "1px 2px",
+              borderRadius: 3,
+            }}
+          >
+            {p.text}
+          </mark>
+        ) : (
+          <span key={i}>{p.text}</span>
+        ),
+      )}
+    </p>
+  );
+}
+

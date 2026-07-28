@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS review_judgments (
   diff_count      INTEGER NOT NULL DEFAULT 0,
   diff_pairs      TEXT,
 
-  analysis        JSONB,                         -- 差分・文体ルール候補などの構造化データ
+  analysis        JSONB,
+  openai_raw      JSONB,                         -- OpenAIから受信したレスポンス全文（監査・再現用）
 
   -- ── 実行時の版情報（再現・比較用）────────
   model           TEXT,                          -- 実際に動いたモデル

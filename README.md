@@ -109,6 +109,9 @@ ai と sent は別々に届きます。届くたびに次を行います。
 
 ```bash
 psql "$DATABASE_URL" -f db/schema.sql
+# 既にテーブルがある場合は差分だけ:
+psql "$DATABASE_URL" -f db/002_add_diff_columns.sql
+psql "$DATABASE_URL" -f db/003_add_openai_raw.sql
 ```
 
 環境変数（Amplify コンソール）:
