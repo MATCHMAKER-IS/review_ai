@@ -80,17 +80,43 @@ function toInt(raw: unknown): number | null {
   return null;
 }
 
+/**
+ * message 用の正規化。
+ *
+ * Deluge 側は JSON エスケープが不安定なため、改行を <br> に置換して
+ * 送ってくることがあります。ここで改行へ戻します。
+ *   <br> <br/> <br /> （大文字小文字問わず）→ \n
+ * 既に生の改行が含まれていればそのまま残します。
+ */
+function restoreLineBreaks(text: string): string {
+  return text.replace(/<br\s*\/?>/gi, "\n");
+}
+
 export async function POST(req: Request): Promise<NextResponse> {
   const secret = process.env.HOOK_SECRET;
   if (secret && req.headers.get("x-api-key") !== secret) {
     return fail(401, "unauthorized", "X-Api-Key が正しくありません");
   }
 
+  // ボディの読み取り。2つの形式を受け付けます。
+  //   application/json                   … 通常のJSON
+  //   application/x-www-form-urlencoded  … Deluge標準形式。
+  //     Deluge側のJSONエスケープが不安定なため、フォーム形式で
+  //     送られてくることがあります。こちらの方が確実です。
   let body: Record<string, unknown>;
+  const contentType = (req.headers.get("content-type") ?? "").toLowerCase();
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    if (contentType.includes("application/x-www-form-urlencoded")) {
+      const text = await req.text();
+      const params = new URLSearchParams(text);
+      body = {};
+      for (const [k, v] of params) body[k] = v;
+    } else {
+      // 既定はJSON。Content-Type 未指定でもJSONとして試みます。
+      body = (await req.json()) as Record<string, unknown>;
+    }
   } catch {
-    return fail(400, "invalid_json", "リクエストボディをJSONとして解釈できません");
+    return fail(400, "invalid_json", "リクエストボディを解釈できません");
   }
 
   const str = (k: string): string | null => {
@@ -100,7 +126,8 @@ export async function POST(req: Request): Promise<NextResponse> {
   };
 
   const ticketId = str("ticket_id");
-  const message = str("message") ?? str("body") ?? str("text");
+  const rawMessage = str("message") ?? str("body") ?? str("text");
+  const message = rawMessage === null ? null : restoreLineBreaks(rawMessage);
   const type = normalizeType(body.type ?? body.kind);
   const staffId = str("staff_id") ?? str("staff");
   const memoryVersion = toInt(body.memory ?? body.memory_version);
