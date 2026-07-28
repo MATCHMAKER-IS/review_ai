@@ -2,7 +2,7 @@
  * 受信メッセージと判定結果の保存（PostgreSQL）
  */
 
-import { queryOne } from "./pg";
+import { query, queryOne } from "./pg";
 
 export type MessageType = "ai" | "sent";
 
@@ -182,4 +182,147 @@ export async function saveJudgment(j: JudgmentToSave): Promise<{ id: string }> {
   );
   if (!row) throw new Error("判定結果の保存に失敗しました");
   return { id: row.id };
+}
+
+/* ─── 画面表示用の取得 ───────────────────── */
+
+export interface JudgmentListItem {
+  ticket_id: string;
+  staff_id: string | null;
+  has_diff: boolean;
+  diff_ratio: number;
+  diff_count: number;
+  fault: string;
+  diff_summary: string | null;
+  model: string | null;
+  openai_error: string | null;
+  judged_at: string;
+}
+
+/** 一覧画面。判定結果を新しい順に返します。 */
+export async function listJudgments(
+  limit = 100,
+  offset = 0,
+): Promise<JudgmentListItem[]> {
+  const rows = await query<{
+    ticket_id: string;
+    staff_id: string | null;
+    has_diff: boolean;
+    diff_ratio: string;
+    diff_count: number;
+    fault: string;
+    diff_summary: string | null;
+    model: string | null;
+    openai_error: string | null;
+    judged_at: Date;
+  }>(
+    `SELECT ticket_id, staff_id, has_diff, diff_ratio, diff_count,
+            fault, diff_summary, model, openai_error, judged_at
+       FROM review_judgments
+      ORDER BY judged_at DESC
+      LIMIT $1 OFFSET $2`,
+    [limit, offset],
+  );
+  return rows.map((r) => ({
+    ticket_id: r.ticket_id,
+    staff_id: r.staff_id,
+    has_diff: r.has_diff,
+    diff_ratio: Number(r.diff_ratio),
+    diff_count: r.diff_count,
+    fault: r.fault,
+    diff_summary: r.diff_summary,
+    model: r.model,
+    openai_error: r.openai_error,
+    judged_at: r.judged_at.toISOString(),
+  }));
+}
+
+export async function countJudgments(): Promise<number> {
+  const r = await queryOne<{ c: string }>(
+    `SELECT COUNT(*)::text AS c FROM review_judgments`,
+  );
+  return Number(r?.c ?? 0);
+}
+
+export interface DiffEntry {
+  before: string;
+  after: string;
+  kind: string;
+}
+
+export interface JudgmentDetail {
+  ticket_id: string;
+  staff_id: string | null;
+  memory_version: number | null;
+  ai_message: string;
+  sent_message: string;
+  has_diff: boolean;
+  diff_ratio: number;
+  diff_count: number;
+  diffs: DiffEntry[];
+  diff_pairs: string | null;
+  fault: string;
+  fault_reason: string | null;
+  diff_summary: string | null;
+  analysis: unknown;
+  model: string | null;
+  review_prompt_version: string | null;
+  openai_response_id: string | null;
+  openai_error: string | null;
+  judged_at: string;
+  updated_at: string;
+}
+
+/** 詳細画面。1チケット分の全項目を返します。 */
+export async function getJudgment(
+  ticketId: string,
+): Promise<JudgmentDetail | null> {
+  const r = await queryOne<{
+    ticket_id: string;
+    staff_id: string | null;
+    memory_version: number | null;
+    ai_message: string;
+    sent_message: string;
+    has_diff: boolean;
+    diff_ratio: string;
+    diff_count: number;
+    diffs: DiffEntry[] | null;
+    diff_pairs: string | null;
+    fault: string;
+    fault_reason: string | null;
+    diff_summary: string | null;
+    analysis: unknown;
+    model: string | null;
+    review_prompt_version: string | null;
+    openai_response_id: string | null;
+    openai_error: string | null;
+    judged_at: Date;
+    updated_at: Date;
+  }>(
+    `SELECT * FROM review_judgments WHERE ticket_id = $1`,
+    [ticketId],
+  );
+  if (!r) return null;
+  return {
+    ticket_id: r.ticket_id,
+    staff_id: r.staff_id,
+    memory_version: r.memory_version,
+    ai_message: r.ai_message,
+    sent_message: r.sent_message,
+    has_diff: r.has_diff,
+    diff_ratio: Number(r.diff_ratio),
+    diff_count: r.diff_count,
+    diffs: Array.isArray(r.diffs) ? r.diffs : [],
+    diff_pairs: r.diff_pairs,
+    fault: r.fault,
+    fault_reason: r.fault_reason,
+    diff_summary: r.diff_summary,
+    analysis: r.analysis,
+    model: r.model,
+    review_prompt_version: r.review_prompt_version,
+    openai_response_id: r.openai_response_id,
+    openai_error: r.openai_error,
+    judged_at: r.judged_at.toISOString(),
+    updated_at: r.updated_at.toISOString(),
+  };
 }

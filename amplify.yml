@@ -18,7 +18,7 @@ frontend:
         - echo "DATABASE_URL set? -> $([ -n \"$DATABASE_URL\" ] && echo yes || echo NO)"
         - echo "OPENAI_API_KEY set? -> $([ -n \"$OPENAI_API_KEY\" ] && echo yes || echo NO)"
         - echo "HOOK_SECRET set? -> $([ -n \"$HOOK_SECRET\" ] && echo yes || echo NO)"
-        - env | grep -E '^(DATABASE_URL|OPENAI_API_KEY|OPENAI_MODEL|HOOK_SECRET|PG_POOL_MAX)=' >> .env.production || true
+        - env | grep -E '^(DATABASE_URL|OPENAI_API_KEY|OPENAI_MODEL|HOOK_SECRET|PG_POOL_MAX|BASIC_AUTH_USER|BASIC_AUTH_PASS)=' >> .env.production || true
         - npm run build
   artifacts:
     baseDirectory: .next
