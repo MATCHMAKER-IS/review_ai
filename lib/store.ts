@@ -199,11 +199,50 @@ export interface JudgmentListItem {
   judged_at: string;
 }
 
-/** 一覧画面。判定結果を新しい順に返します。 */
+export interface JudgmentFilter {
+  ticket_id?: string;
+  staff_id?: string;
+  keyword?: string; // ai_message / sent_message の部分一致
+  fault?: string;
+  date_from?: string;
+  date_to?: string;
+}
+
+function buildJudgmentWhere(f: JudgmentFilter): {
+  clause: string;
+  params: unknown[];
+} {
+  const conds: string[] = [];
+  const params: unknown[] = [];
+  const ph = (val: unknown): string => {
+    params.push(val);
+    return `$${params.length}`;
+  };
+
+  if (f.ticket_id) conds.push(`ticket_id ILIKE ${ph(`%${f.ticket_id}%`)}`);
+  if (f.staff_id) conds.push(`staff_id ILIKE ${ph(`%${f.staff_id}%`)}`);
+  if (f.keyword) {
+    const a = ph(`%${f.keyword}%`);
+    const b = ph(`%${f.keyword}%`);
+    conds.push(`(ai_message ILIKE ${a} OR sent_message ILIKE ${b})`);
+  }
+  if (f.fault) conds.push(`fault = ${ph(f.fault)}`);
+  if (f.date_from) conds.push(`judged_at >= ${ph(`${f.date_from} 00:00:00`)}`);
+  if (f.date_to) conds.push(`judged_at <= ${ph(`${f.date_to} 23:59:59`)}`);
+
+  return {
+    clause: conds.length ? `WHERE ${conds.join(" AND ")}` : "",
+    params,
+  };
+}
+
+/** 一覧画面。判定結果を新しい順に、検索条件付きで返します。 */
 export async function listJudgments(
-  limit = 100,
+  f: JudgmentFilter = {},
+  limit = 50,
   offset = 0,
 ): Promise<JudgmentListItem[]> {
+  const { clause, params } = buildJudgmentWhere(f);
   const rows = await query<{
     ticket_id: string;
     staff_id: string | null;
@@ -219,9 +258,10 @@ export async function listJudgments(
     `SELECT ticket_id, staff_id, has_diff, diff_ratio, diff_count,
             fault, diff_summary, model, openai_error, judged_at
        FROM review_judgments
+       ${clause}
       ORDER BY judged_at DESC
-      LIMIT $1 OFFSET $2`,
-    [limit, offset],
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, limit, offset],
   );
   return rows.map((r) => ({
     ticket_id: r.ticket_id,
@@ -237,9 +277,11 @@ export async function listJudgments(
   }));
 }
 
-export async function countJudgments(): Promise<number> {
+export async function countJudgments(f: JudgmentFilter = {}): Promise<number> {
+  const { clause, params } = buildJudgmentWhere(f);
   const r = await queryOne<{ c: string }>(
-    `SELECT COUNT(*)::text AS c FROM review_judgments`,
+    `SELECT COUNT(*)::text AS c FROM review_judgments ${clause}`,
+    params,
   );
   return Number(r?.c ?? 0);
 }
@@ -325,4 +367,149 @@ export async function getJudgment(
     judged_at: r.judged_at.toISOString(),
     updated_at: r.updated_at.toISOString(),
   };
+}
+
+/* ─── メッセージ一覧・詳細（画面用）───────────── */
+
+export interface MessageListItem {
+  id: string;
+  ticket_id: string;
+  type: MessageType;
+  message: string;
+  staff_id: string | null;
+  memory_version: number | null;
+  received_at: string;
+}
+
+export interface MessageFilter {
+  ticket_id?: string;
+  staff_id?: string;
+  keyword?: string; // message の部分一致
+  type?: MessageType;
+  date_from?: string; // YYYY-MM-DD
+  date_to?: string;
+}
+
+/** WHERE 句とパラメータを組み立てます（メッセージ用）。 */
+function buildMessageWhere(f: MessageFilter): {
+  clause: string;
+  params: unknown[];
+} {
+  const conds: string[] = [];
+  const params: unknown[] = [];
+  const ph = (val: unknown): string => {
+    params.push(val);
+    return `$${params.length}`;
+  };
+
+  if (f.ticket_id) conds.push(`ticket_id ILIKE ${ph(`%${f.ticket_id}%`)}`);
+  if (f.staff_id) conds.push(`staff_id ILIKE ${ph(`%${f.staff_id}%`)}`);
+  if (f.keyword) conds.push(`message ILIKE ${ph(`%${f.keyword}%`)}`);
+  if (f.type) conds.push(`type = ${ph(f.type)}`);
+  if (f.date_from) conds.push(`received_at >= ${ph(`${f.date_from} 00:00:00`)}`);
+  if (f.date_to) conds.push(`received_at <= ${ph(`${f.date_to} 23:59:59`)}`);
+
+  return {
+    clause: conds.length ? `WHERE ${conds.join(" AND ")}` : "",
+    params,
+  };
+}
+
+export async function listMessages(
+  f: MessageFilter,
+  limit = 50,
+  offset = 0,
+): Promise<MessageListItem[]> {
+  const { clause, params } = buildMessageWhere(f);
+  const rows = await query<{
+    id: string;
+    ticket_id: string;
+    type: MessageType;
+    message: string;
+    staff_id: string | null;
+    memory_version: number | null;
+    received_at: Date;
+  }>(
+    `SELECT id, ticket_id, type, message, staff_id, memory_version, received_at
+       FROM review_messages
+       ${clause}
+      ORDER BY received_at DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, limit, offset],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    ticket_id: r.ticket_id,
+    type: r.type,
+    message: r.message,
+    staff_id: r.staff_id,
+    memory_version: r.memory_version,
+    received_at: r.received_at.toISOString(),
+  }));
+}
+
+export async function countMessages(f: MessageFilter): Promise<number> {
+  const { clause, params } = buildMessageWhere(f);
+  const r = await queryOne<{ c: string }>(
+    `SELECT COUNT(*)::text AS c FROM review_messages ${clause}`,
+    params,
+  );
+  return Number(r?.c ?? 0);
+}
+
+export async function getMessage(
+  id: string,
+): Promise<MessageListItem | null> {
+  const r = await queryOne<{
+    id: string;
+    ticket_id: string;
+    type: MessageType;
+    message: string;
+    staff_id: string | null;
+    memory_version: number | null;
+    received_at: Date;
+  }>(
+    `SELECT id, ticket_id, type, message, staff_id, memory_version, received_at
+       FROM review_messages WHERE id = $1`,
+    [id],
+  );
+  if (!r) return null;
+  return {
+    id: r.id,
+    ticket_id: r.ticket_id,
+    type: r.type,
+    message: r.message,
+    staff_id: r.staff_id,
+    memory_version: r.memory_version,
+    received_at: r.received_at.toISOString(),
+  };
+}
+
+/** 同じチケットの ai / sent 両方を時系列で。詳細で並べて見る用。 */
+export async function getMessagesByTicket(
+  ticketId: string,
+): Promise<MessageListItem[]> {
+  const rows = await query<{
+    id: string;
+    ticket_id: string;
+    type: MessageType;
+    message: string;
+    staff_id: string | null;
+    memory_version: number | null;
+    received_at: Date;
+  }>(
+    `SELECT id, ticket_id, type, message, staff_id, memory_version, received_at
+       FROM review_messages WHERE ticket_id = $1
+      ORDER BY received_at ASC`,
+    [ticketId],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    ticket_id: r.ticket_id,
+    type: r.type,
+    message: r.message,
+    staff_id: r.staff_id,
+    memory_version: r.memory_version,
+    received_at: r.received_at.toISOString(),
+  }));
 }

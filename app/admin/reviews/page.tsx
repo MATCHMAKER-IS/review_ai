@@ -1,86 +1,90 @@
-import { listJudgments, countJudgments } from "@/lib/store";
+import { listJudgments, countJudgments, type JudgmentFilter } from "@/lib/store";
+import {
+  th, td, TableCard, FaultBadge, Pager, SearchForm, DbError, Empty,
+} from "../_components/ui";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const FAULT_LABEL: Record<string, string> = {
-  judgment: "判断ミス",
-  generation: "生成ミス",
-  none: "修正なし",
-  unknown: "保留",
-};
-
-const FAULT_COLOR: Record<string, string> = {
-  judgment: "#b91c1c",
-  generation: "#c2410c",
-  none: "#15803d",
-  unknown: "#78716c",
-};
-
-function DbError({ error }: { error: unknown }) {
-  const msg = error instanceof Error ? error.message : String(error);
-  return (
-    <div style={{ padding: 16, background: "#fef2f2", borderRadius: 8 }}>
-      <p style={{ margin: "0 0 8px", fontWeight: 600 }}>
-        データベースに接続できません
-      </p>
-      <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 13 }}>{msg}</pre>
-    </div>
-  );
-}
+const PER_PAGE = 50;
 
 export default async function ReviewListPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const sp = await searchParams;
   const page = Math.max(1, Number(sp.page ?? "1") || 1);
-  const perPage = 50;
+
+  const filter: JudgmentFilter = {
+    ticket_id: sp.ticket_id || undefined,
+    staff_id: sp.staff_id || undefined,
+    keyword: sp.keyword || undefined,
+    fault: sp.fault || undefined,
+    date_from: sp.date_from || undefined,
+    date_to: sp.date_to || undefined,
+  };
 
   let rows;
   let total: number;
   try {
     [rows, total] = await Promise.all([
-      listJudgments(perPage, (page - 1) * perPage),
-      countJudgments(),
+      listJudgments(filter, PER_PAGE, (page - 1) * PER_PAGE),
+      countJudgments(filter),
     ]);
   } catch (err) {
     return <DbError error={err} />;
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
 
-  const th: React.CSSProperties = {
-    textAlign: "left",
-    padding: "8px 10px",
-    borderBottom: "2px solid #e7e5e4",
-    fontSize: 12,
-    color: "#78716c",
-    whiteSpace: "nowrap",
-  };
-  const td: React.CSSProperties = {
-    padding: "9px 10px",
-    borderBottom: "1px solid #f0efee",
-    fontSize: 14,
-    verticalAlign: "top",
+  // 現在の検索条件を保ったままページ番号だけ変えるURL
+  const makeHref = (p: number) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(sp)) {
+      if (v && k !== "page") q.set(k, v);
+    }
+    q.set("page", String(p));
+    return `/admin/reviews?${q.toString()}`;
   };
 
   return (
     <>
+      <h1 style={{ fontSize: 22, margin: "0 0 16px" }}>判定結果</h1>
+
+      <SearchForm
+        action="/admin/reviews"
+        values={sp as Record<string, string>}
+        fields={[
+          { name: "ticket_id", label: "チケットID" },
+          { name: "staff_id", label: "担当者ID" },
+          { name: "keyword", label: "本文（部分一致）" },
+          {
+            name: "fault",
+            label: "帰属",
+            type: "select",
+            options: [
+              { value: "", label: "すべて" },
+              { value: "judgment", label: "判断ミス" },
+              { value: "generation", label: "生成ミス" },
+              { value: "none", label: "修正なし" },
+              { value: "unknown", label: "保留" },
+            ],
+          },
+          { name: "date_from", label: "判定日（から）", type: "date" },
+          { name: "date_to", label: "判定日（まで）", type: "date" },
+        ]}
+      />
+
       <p style={{ fontSize: 13, color: "#78716c", margin: "0 0 12px" }}>
         全 {total} 件 ／ {page} / {totalPages} ページ
       </p>
 
       {rows.length === 0 ? (
-        <div style={{ padding: 24, textAlign: "center", color: "#78716c" }}>
-          判定結果がまだありません。
-        </div>
+        <Empty>該当する判定結果がありません。</Empty>
       ) : (
-        <div
-          style={{ background: "#fff", borderRadius: 8, overflow: "hidden", boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }}
-        >
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <TableCard>
+          <>
             <thead>
               <tr>
                 <th style={th}>チケット</th>
@@ -104,29 +108,14 @@ export default async function ReviewListPage({
                     </a>
                   </td>
                   <td style={td}>{r.staff_id ?? "—"}</td>
-                  <td style={td}>
-                    <span
-                      style={{
-                        display: "inline-block",
-                        padding: "2px 8px",
-                        borderRadius: 4,
-                        fontSize: 12,
-                        color: "#fff",
-                        background: FAULT_COLOR[r.fault] ?? "#78716c",
-                      }}
-                    >
-                      {FAULT_LABEL[r.fault] ?? r.fault}
-                    </span>
-                  </td>
+                  <td style={td}><FaultBadge fault={r.fault} /></td>
                   <td style={{ ...td, textAlign: "right" }}>{r.diff_ratio}</td>
                   <td style={{ ...td, textAlign: "right" }}>{r.diff_count}</td>
-                  <td style={{ ...td, color: "#57534e" }}>
+                  <td style={{ ...td, color: "#57534e", maxWidth: 280 }}>
                     {r.diff_summary ??
                       (r.openai_error ? (
                         <span style={{ color: "#c2410c" }}>OpenAI: {r.openai_error}</span>
-                      ) : (
-                        "—"
-                      ))}
+                      ) : "—")}
                   </td>
                   <td style={{ ...td, color: "#78716c", fontSize: 13, whiteSpace: "nowrap" }}>
                     {new Date(r.judged_at).toLocaleString("ja-JP")}
@@ -134,37 +123,11 @@ export default async function ReviewListPage({
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+          </>
+        </TableCard>
       )}
 
-      {totalPages > 1 && (
-        <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "center" }}>
-          {page > 1 && (
-            <a href={`/admin/reviews?page=${page - 1}`} style={pagerStyle}>
-              ← 前
-            </a>
-          )}
-          <span style={{ padding: "6px 12px", fontSize: 14, color: "#78716c" }}>
-            {page} / {totalPages}
-          </span>
-          {page < totalPages && (
-            <a href={`/admin/reviews?page=${page + 1}`} style={pagerStyle}>
-              次 →
-            </a>
-          )}
-        </div>
-      )}
+      <Pager page={page} totalPages={totalPages} makeHref={makeHref} />
     </>
   );
 }
-
-const pagerStyle: React.CSSProperties = {
-  padding: "6px 12px",
-  background: "#fff",
-  border: "1px solid #e7e5e4",
-  borderRadius: 6,
-  textDecoration: "none",
-  color: "#1c1917",
-  fontSize: 14,
-};
