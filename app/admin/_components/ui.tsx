@@ -279,21 +279,44 @@ export function HighlightedBody({
   marks: string[];
   color: "before" | "after";
 }) {
-  const targets = Array.from(new Set(marks.filter((m) => m && m.length > 0)));
+  // 着色対象の絞り込み。
+  //   - 空や1文字は対象外（「。」「、」1文字が本文全体に散らばって
+  //     色付くのを防ぐ）
+  //   - 句読点・記号・空白だけの断片は対象外
+  // 意味のある語句だけを着色します。
+  const isMeaningful = (m: string): boolean => {
+    const t = m.trim();
+    if (t.length < 2) return false;
+    // 記号・句読点・空白のみなら除外
+    if (/^[\s、。，．・…！？!?"'（）()「」『』【】〈〉《》\-—~〜:：;；]+$/u.test(t))
+      return false;
+    return true;
+  };
+  const targets = Array.from(new Set(marks.filter(isMeaningful)));
   if (targets.length === 0) {
     return <p style={pre}>{text}</p>;
   }
 
-  // 一致箇所の範囲を集める
+  // 一致箇所の範囲を集める。
+  // 各ターゲットにつき最初の1回だけを着色します。同じ語が本文に
+  // 複数あっても全部塗ると読みにくく、差分箇所が埋もれるためです。
+  // 長いターゲットから先に処理し、既に塗った範囲とは重ねません。
   type Range = { start: number; end: number };
   const ranges: Range[] = [];
-  for (const t of targets) {
+  const sorted = [...targets].sort((a, b) => b.length - a.length);
+  for (const t of sorted) {
     let from = 0;
-    while (true) {
+    while (from <= text.length) {
       const idx = text.indexOf(t, from);
       if (idx === -1) break;
-      ranges.push({ start: idx, end: idx + t.length });
-      from = idx + t.length;
+      const overlaps = ranges.some(
+        (r) => idx < r.end && idx + t.length > r.start,
+      );
+      if (!overlaps) {
+        ranges.push({ start: idx, end: idx + t.length });
+        break; // このターゲットは1回だけ
+      }
+      from = idx + 1;
     }
   }
   if (ranges.length === 0) {
