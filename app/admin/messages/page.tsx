@@ -1,7 +1,6 @@
 import { listMessages, countMessages, type MessageFilter } from "@/lib/store";
 import {
-  th, td, TableCard, TypeBadge, Pager, SearchForm, DbError, Empty,
-} from "../_components/ui";
+  th, td, TableCard, TypeBadge, Pager, SearchForm, DbError, Empty, formatJST,} from "../_components/ui";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -110,7 +109,7 @@ export default async function MessageListPage({
                     </a>
                   </td>
                   <td style={{ ...td, color: "#78716c", fontSize: 13, whiteSpace: "nowrap" }}>
-                    {new Date(m.received_at).toLocaleString("ja-JP")}
+                    {formatJST(m.received_at)}
                   </td>
                 </tr>
               ))}

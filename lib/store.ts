@@ -74,13 +74,13 @@ export async function getPairIfComplete(
        SELECT message, staff_id, memory_version
          FROM review_messages
         WHERE ticket_id = $1 AND type = 'ai'
-        ORDER BY received_at DESC LIMIT 1
+        ORDER BY received_at DESC, id DESC LIMIT 1
      ),
      latest_sent AS (
        SELECT message
          FROM review_messages
         WHERE ticket_id = $1 AND type = 'sent'
-        ORDER BY received_at DESC LIMIT 1
+        ORDER BY received_at DESC, id DESC LIMIT 1
      )
      SELECT
        a.message         AS ai_message,

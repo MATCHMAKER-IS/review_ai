@@ -1,5 +1,5 @@
 import { getMessage } from "@/lib/store";
-import { card, label, pre, TypeBadge } from "../../_components/ui";
+import { card, label, pre, TypeBadge, formatJST} from "../../_components/ui";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,7 +42,7 @@ export default async function MessageDetailPage({
       </h1>
       <p style={{ fontSize: 13, color: "#78716c", margin: "0 0 16px" }}>
         担当: {m.staff_id ?? "—"} ／ メモリ版: {m.memory_version ?? "—"} ／ 受信:{" "}
-        {new Date(m.received_at).toLocaleString("ja-JP")}
+        {formatJST(m.received_at)}
       </p>
 
       <div style={card}>

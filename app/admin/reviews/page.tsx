@@ -1,7 +1,6 @@
 import { listJudgments, countJudgments, type JudgmentFilter } from "@/lib/store";
 import {
-  th, td, TableCard, FaultBadge, Pager, SearchForm, DbError, Empty,
-} from "../_components/ui";
+  th, td, TableCard, FaultBadge, Pager, SearchForm, DbError, Empty, formatJST,} from "../_components/ui";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -118,7 +117,7 @@ export default async function ReviewListPage({
                       ) : "—")}
                   </td>
                   <td style={{ ...td, color: "#78716c", fontSize: 13, whiteSpace: "nowrap" }}>
-                    {new Date(r.judged_at).toLocaleString("ja-JP")}
+                    {formatJST(r.judged_at)}
                   </td>
                 </tr>
               ))}

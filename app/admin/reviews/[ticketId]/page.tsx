@@ -1,6 +1,6 @@
 import { getJudgment, getMessagesByTicket, listComments } from "@/lib/store";
 import { postComment } from "../actions";
-import { card, label, pre, TypeBadge, HighlightedBody } from "../../_components/ui";
+import { card, label, pre, TypeBadge, HighlightedBody, formatJST} from "../../_components/ui";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,7 +55,7 @@ export default async function ReviewDetailPage({
       <h1 style={{ fontSize: 20, margin: "12px 0 4px" }}>{j.ticket_id}</h1>
       <p style={{ fontSize: 13, color: "#78716c", margin: "0 0 16px" }}>
         担当: {j.staff_id ?? "—"} ／ メモリ版: {j.memory_version ?? "—"} ／ 判定:{" "}
-        {new Date(j.judged_at).toLocaleString("ja-JP")}
+        {formatJST(j.judged_at)}
       </p>
 
       <div style={{ ...card, display: "flex", gap: 24, flexWrap: "wrap" }}>
@@ -151,7 +151,7 @@ export default async function ReviewDetailPage({
               <TypeBadge type={m.type} />
               <a href={`/admin/messages/${m.id}`} style={{ color: "#1d4ed8", fontSize: 13 }}>詳細</a>
               <span style={{ fontSize: 12, color: "#78716c" }}>
-                {new Date(m.received_at).toLocaleString("ja-JP")}
+                {formatJST(m.received_at)}
               </span>
             </div>
           ))}
@@ -204,7 +204,7 @@ export default async function ReviewDetailPage({
                     {c.author || "名無し"}
                   </span>
                   <span style={{ fontSize: 12, color: "#a8a29e" }}>
-                    {new Date(c.created_at).toLocaleString("ja-JP")}
+                    {formatJST(c.created_at)}
                   </span>
                 </div>
                 <p style={{ ...pre, fontSize: 14 }}>{c.body}</p>

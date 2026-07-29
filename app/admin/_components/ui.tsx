@@ -1,5 +1,26 @@
 import type { CSSProperties, ReactNode } from "react";
 
+/**
+ * 日時を日本時間（JST）で表示します。
+ *
+ * DBの received_at / judged_at は UTC で保存されています（正しい持ち方）。
+ * toLocaleString("ja-JP") だけでは書式が日本語になるだけで、
+ * タイムゾーンはサーバー（UTC）のままになり、9時間ずれます。
+ * timeZone を明示して、確実に日本時間で表示します。
+ */
+export function formatJST(iso: string): string {
+  return new Date(iso).toLocaleString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+
 /* 管理画面で共通して使う小さな部品たち */
 
 export const card: CSSProperties = {
