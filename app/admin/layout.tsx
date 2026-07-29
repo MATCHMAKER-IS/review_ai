@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { headers } from "next/headers";
 
 export const metadata = {
   title: "セッティングAI 管理画面",
@@ -9,9 +10,42 @@ const NAV = [
   { href: "/admin/messages", label: "受信メッセージ", icon: "✉" },
 ];
 
-export default function AdminLayout({ children }: { children: ReactNode }) {
+export default async function AdminLayout({ children }: { children: ReactNode }) {
+  // 現在のパスを取得して、対応するメニューをカレント表示にします。
+  // middleware が x-pathname を付けていればそれを、無ければ referer 等では
+  // 取れないため、各項目の href で前方一致判定します。
+  const h = await headers();
+  const pathname = h.get("x-pathname") ?? "";
+
   return (
     <html lang="ja">
+      <head>
+        <style>{`
+          .nav-link {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            padding: 11px 20px;
+            color: #e7e5e4;
+            text-decoration: none;
+            font-size: 14px;
+            border-left: 3px solid transparent;
+            transition: background 0.12s, color 0.12s;
+          }
+          .nav-link:hover {
+            background: #292524;
+            color: #fff;
+          }
+          .nav-link.current {
+            background: #292524;
+            color: #fff;
+            border-left-color: #3b82f6;
+            font-weight: 600;
+          }
+          .nav-link .nav-icon { opacity: 0.7; width: 16px; }
+          .nav-link.current .nav-icon { opacity: 1; }
+        `}</style>
+      </head>
       <body
         style={{
           margin: 0,
@@ -22,7 +56,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         }}
       >
         <div style={{ display: "flex", minHeight: "100vh" }}>
-          {/* ── 左メニュー ── */}
           <aside
             style={{
               width: 220,
@@ -48,24 +81,20 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               </div>
             </div>
             <nav style={{ padding: "10px 0", flex: 1 }}>
-              {NAV.map((n) => (
-                <a
-                  key={n.href}
-                  href={n.href}
-                  style={{
-                    display: "flex",
-                    gap: 10,
-                    alignItems: "center",
-                    padding: "11px 20px",
-                    color: "#e7e5e4",
-                    textDecoration: "none",
-                    fontSize: 14,
-                  }}
-                >
-                  <span style={{ opacity: 0.7, width: 16 }}>{n.icon}</span>
-                  {n.label}
-                </a>
-              ))}
+              {NAV.map((n) => {
+                const isCurrent = pathname.startsWith(n.href);
+                return (
+                  <a
+                    key={n.href}
+                    href={n.href}
+                    className={`nav-link${isCurrent ? " current" : ""}`}
+                    aria-current={isCurrent ? "page" : undefined}
+                  >
+                    <span className="nav-icon">{n.icon}</span>
+                    {n.label}
+                  </a>
+                );
+              })}
             </nav>
             <div
               style={{
@@ -79,7 +108,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             </div>
           </aside>
 
-          {/* ── 右コンテンツ ── */}
           <main style={{ flex: 1, minWidth: 0 }}>
             <div style={{ maxWidth: 1080, margin: "0 auto", padding: "24px 24px 60px" }}>
               {children}

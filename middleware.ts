@@ -12,6 +12,10 @@ import type { NextRequest } from "next/server";
  *   BASIC_AUTH_USER … ユーザー名
  *   BASIC_AUTH_PASS … パスワード
  * どちらか未設定なら認証をかけません（ローカル開発用）。
+ *
+ * あわせて、現在のパスを x-pathname ヘッダーに載せて渡します。
+ * レイアウトが「今どのページか」を判定して、左メニューのカレント
+ * 表示に使います（Server Component からは自分のパスを直接取れないため）。
  */
 
 export const config = {
@@ -20,26 +24,31 @@ export const config = {
 };
 
 export function middleware(req: NextRequest): NextResponse {
+  // 現在のパスを後段（レイアウト）へ渡すためのヘッダー。
+  const withPath = (): NextResponse => {
+    const h = new Headers(req.headers);
+    h.set("x-pathname", req.nextUrl.pathname);
+    return NextResponse.next({ request: { headers: h } });
+  };
+
   const user = process.env.BASIC_AUTH_USER;
   const pass = process.env.BASIC_AUTH_PASS;
 
-  // 未設定なら素通し（ローカルで手軽に見るため）
-  if (!user || !pass) return NextResponse.next();
+  // 認証が未設定なら素通し（ただしパスは渡す）
+  if (!user || !pass) return withPath();
 
   const header = req.headers.get("authorization");
   if (header) {
-    // "Basic base64(user:pass)" を検証
     const encoded = header.split(" ")[1] ?? "";
     const decoded = atob(encoded);
     const idx = decoded.indexOf(":");
     const u = decoded.slice(0, idx);
     const p = decoded.slice(idx + 1);
     if (u === user && p === pass) {
-      return NextResponse.next();
+      return withPath();
     }
   }
 
-  // 認証を要求する
   return new NextResponse("認証が必要です", {
     status: 401,
     headers: { "WWW-Authenticate": 'Basic realm="review-admin"' },
