@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "ES2022"
-    ],
+    "lib": ["dom", "dom.iterable", "ES2022"],
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
@@ -16,27 +12,10 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
-    "paths": {
-      "@/*": [
-        "./*"
-      ]
-    },
-    "allowJs": true
+    "plugins": [{ "name": "next" }],
+    "paths": { "@/*": ["./*"] }
   },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts"
-  ],
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "//": "scripts/ はデプロイ対象外の開発用ツールです。トップレベルawaitやNode専用APIを使うため、Amplifyのビルドを不安定にしないよう型チェックから外しています。tsx での実行には影響しません。",
-  "exclude": [
-    "node_modules",
-    "scripts"
-  ]
+  "exclude": ["node_modules", "scripts"]
 }

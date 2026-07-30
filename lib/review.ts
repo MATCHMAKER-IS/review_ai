@@ -262,7 +262,7 @@ export async function reviewPair(args: {
   const ac = new AbortController();
   const timer = setTimeout(
     () => ac.abort(),
-    Number(process.env.OPENAI_TIMEOUT_MS ?? 60_000),
+    Number(process.env.OPENAI_TIMEOUT_MS ?? 90_000),
   );
 
   try {
@@ -279,6 +279,12 @@ export async function reviewPair(args: {
         input: userInput,
         text: { format: { type: "json_object" } },
         max_output_tokens: 2000,
+        // 差分抽出は複雑な推論を要さないため、推論深度を下げて高速化します。
+        // 既定を省くと gpt-5.6 が深く推論して 60 秒を超えることがあります。
+        // 必要なら OPENAI_REASONING_EFFORT で medium 等に上げられます。
+        reasoning: {
+          effort: process.env.OPENAI_REASONING_EFFORT ?? "low",
+        },
         // temperature は指定しません。gpt-5系（推論モデル）が受け付けません。
       }),
     });
