@@ -60,7 +60,6 @@ export default async function MessageListPage({
         values={sp as Record<string, string>}
         fields={[
           { name: "ticket_id", label: "チケットID" },
-          { name: "staff_id", label: "担当者ID" },
           { name: "staff_name", label: "担当者名" },
           { name: "keyword", label: "本文（部分一致）" },
           {
