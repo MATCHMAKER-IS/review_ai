@@ -9,6 +9,9 @@ import { reviewPair } from "@/lib/review";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Amplify Hosting の SSR で確実に動く範囲に保ちます。
+// maxDuration を大きくしても Amplify 側の内部上限で効かないことがあるため、
+// 120 秒に据え置き、OpenAI のタイムアウトはこれより内側(110秒)に収めます。
 export const maxDuration = 120;
 
 /**

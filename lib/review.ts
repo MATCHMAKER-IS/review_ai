@@ -259,35 +259,72 @@ export async function reviewPair(args: {
     "上記2つを比較し、指定されたキー構成の json オブジェクトのみを返してください。",
   ].join("\n");
 
-  const ac = new AbortController();
-  const timer = setTimeout(
-    () => ac.abort(),
-    Number(process.env.OPENAI_TIMEOUT_MS ?? 90_000),
-  );
+  const requestBody = JSON.stringify({
+    model,
+    instructions: INSTRUCTIONS,
+    input: userInput,
+    text: { format: { type: "json_object" } },
+    max_output_tokens: 2000,
+    // 差分抽出は複雑な推論を要さないため、推論深度を下げて高速化します。
+    // 既定を省くと gpt-5.6 が深く推論して時間がかかることがあります。
+    // 必要なら OPENAI_REASONING_EFFORT で medium 等に上げられます。
+    reasoning: {
+      effort: process.env.OPENAI_REASONING_EFFORT ?? "low",
+    },
+    // temperature は指定しません。gpt-5系（推論モデル）が受け付けません。
+  });
+
+  // 1回あたりのタイムアウト。既定 110 秒。
+  // OpenAI の応答はたまに遅くなりますが、多くは待てば返ってきます。
+  // Lambda の maxDuration(120秒) より内側に収め、Lambda が力尽きる前に
+  // OpenAI 側を打ち切って、きれいな openai_timeout を返せるようにします。
+  // （Lambda が先に力尽きると原因の分かりにくいエラーになるため）
+  //
+  // 「1回長く待つ」方針です。もし応答が完全に詰まるケースが目立つなら、
+  // 時間を短くして OPENAI_MAX_RETRIES=1 のやり直し方式に切り替えられます。
+  // その場合 OPENAI_TIMEOUT_MS × (回数+1) < 120秒 に収めてください
+  // （例: 55秒 × 2 = 110秒）。
+  const perTryMs = Number(process.env.OPENAI_TIMEOUT_MS ?? 110_000);
+  const maxRetries = Number(process.env.OPENAI_MAX_RETRIES ?? 0);
+
+  const callOnce = async (): Promise<Response> => {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), perTryMs);
+    try {
+      return await fetch(API_URL, {
+        method: "POST",
+        signal: ac.signal,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: requestBody,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
 
   try {
-    const res = await fetch(API_URL, {
-      method: "POST",
-      signal: ac.signal,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        instructions: INSTRUCTIONS,
-        input: userInput,
-        text: { format: { type: "json_object" } },
-        max_output_tokens: 2000,
-        // 差分抽出は複雑な推論を要さないため、推論深度を下げて高速化します。
-        // 既定を省くと gpt-5.6 が深く推論して 60 秒を超えることがあります。
-        // 必要なら OPENAI_REASONING_EFFORT で medium 等に上げられます。
-        reasoning: {
-          effort: process.env.OPENAI_REASONING_EFFORT ?? "low",
-        },
-        // temperature は指定しません。gpt-5系（推論モデル）が受け付けません。
-      }),
-    });
+    // タイムアウト（abort）した場合のみ再試行します。
+    // それ以外のエラー（4xx など）は再試行しても無駄なので即座に投げます。
+    let res: Response | null = null;
+    let lastAbort: unknown = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        res = await callOnce();
+        break;
+      } catch (e) {
+        const aborted =
+          e instanceof Error &&
+          (e.name === "AbortError" || e.message.toLowerCase().includes("abort"));
+        if (!aborted || attempt === maxRetries) throw e;
+        lastAbort = e;
+        // 続けて再試行（ログ目的で参照だけしておく）
+        void lastAbort;
+      }
+    }
+    if (!res) throw new Error("OpenAI 応答が得られませんでした");
 
     const data = (await res.json()) as Record<string, unknown>;
 
@@ -367,7 +404,5 @@ export async function reviewPair(args: {
           }
         : { code: "openai_error", message: msg },
     };
-  } finally {
-    clearTimeout(timer);
   }
 }
