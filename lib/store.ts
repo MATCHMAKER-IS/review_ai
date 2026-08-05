@@ -74,13 +74,13 @@ export async function getPairIfComplete(
     memory_version: number | null;
   }>(
     `WITH latest_ai AS (
-       SELECT message, staff_id, staff_name, memory_version
+       SELECT message, memory_version
          FROM review_messages
         WHERE ticket_id = $1 AND type = 'ai'
         ORDER BY received_at DESC, id DESC LIMIT 1
      ),
      latest_sent AS (
-       SELECT message
+       SELECT message, staff_id, staff_name
          FROM review_messages
         WHERE ticket_id = $1 AND type = 'sent'
         ORDER BY received_at DESC, id DESC LIMIT 1
@@ -88,8 +88,11 @@ export async function getPairIfComplete(
      SELECT
        a.message         AS ai_message,
        s.message         AS sent_message,
-       a.staff_id        AS staff_id,
-       a.staff_name      AS staff_name,
+       -- 担当者は「実際に送信した人」= sent 側を採用します。
+       -- ai(下書き)の時点では担当者が未確定な運用のため。
+       s.staff_id        AS staff_id,
+       s.staff_name      AS staff_name,
+       -- メモリ版数は「下書きを生成したメモリの版」なので ai 側のまま。
        a.memory_version  AS memory_version
      FROM latest_ai a
      CROSS JOIN latest_sent s`,
