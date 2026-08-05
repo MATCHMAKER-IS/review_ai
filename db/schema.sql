@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS review_messages (
   message         TEXT NOT NULL,                 -- メッセージ内容
   type            TEXT NOT NULL                  -- ai / sent
                   CHECK (type IN ('ai', 'sent')),
-  staff_id        TEXT,                          -- 担当ユーザーのID
+  staff_id        TEXT,                          -- 担当ユーザーのID（移行期。将来削除予定）
+  staff_name      TEXT,                          -- 担当ユーザーの氏名
   memory_version  INTEGER,                       -- メモリのバージョン番号
 
   received_at     TIMESTAMPTZ NOT NULL DEFAULT now(),  -- 受信日時
@@ -42,7 +43,8 @@ CREATE TABLE IF NOT EXISTS review_judgments (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),  -- レコードID
 
   ticket_id       TEXT NOT NULL UNIQUE,          -- 問い合わせID（1チケット1判定）
-  staff_id        TEXT,                          -- 担当ユーザーのID
+  staff_id        TEXT,                          -- 担当ユーザーのID（移行期。将来削除予定）
+  staff_name      TEXT,                          -- 担当ユーザーの氏名
   memory_version  INTEGER,                       -- ai を生成したメモリの版数
 
   -- 突き合わせた元の文面（後から追跡できるよう控えを持つ）

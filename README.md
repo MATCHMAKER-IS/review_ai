@@ -113,6 +113,7 @@ psql "$DATABASE_URL" -f db/schema.sql
 psql "$DATABASE_URL" -f db/002_add_diff_columns.sql
 psql "$DATABASE_URL" -f db/003_add_openai_raw.sql
 psql "$DATABASE_URL" -f db/004_add_comments.sql
+psql "$DATABASE_URL" -f db/005_add_staff_name.sql
 ```
 
 環境変数（Amplify コンソール）:

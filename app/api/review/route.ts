@@ -130,6 +130,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   const message = rawMessage === null ? null : restoreLineBreaks(rawMessage);
   const type = normalizeType(body.type ?? body.kind);
   const staffId = str("staff_id") ?? str("staff");
+  const staffName = str("staff_name") ?? str("staffName");
   const memoryVersion = toInt(body.memory ?? body.memory_version);
 
   const missing: string[] = [];
@@ -151,6 +152,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       message: message!,
       type: type!,
       staff_id: staffId,
+      staff_name: staffName,
       memory_version: memoryVersion,
     });
 
@@ -195,6 +197,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     const judgment = await saveJudgment({
       ticket_id: pair.ticket_id,
       staff_id: pair.staff_id,
+      staff_name: pair.staff_name,
       memory_version: pair.memory_version,
       ai_message: pair.ai_message,
       sent_message: pair.sent_message,

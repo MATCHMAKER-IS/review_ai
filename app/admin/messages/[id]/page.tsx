@@ -41,7 +41,7 @@ export default async function MessageDetailPage({
         {m.ticket_id} <TypeBadge type={m.type} />
       </h1>
       <p style={{ fontSize: 13, color: "#78716c", margin: "0 0 16px" }}>
-        担当: {m.staff_id ?? "—"} ／ メモリ版: {m.memory_version ?? "—"} ／ 受信:{" "}
+        担当: {m.staff_name ?? m.staff_id ?? "—"} ／ メモリ版: {m.memory_version ?? "—"} ／ 受信:{" "}
         {formatJST(m.received_at)}
       </p>
 

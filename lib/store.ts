@@ -11,6 +11,7 @@ export interface IncomingMessage {
   message: string;
   type: MessageType;
   staff_id: string | null;
+  staff_name: string | null;
   memory_version: number | null;
 }
 
@@ -30,10 +31,10 @@ export async function saveMessage(m: IncomingMessage): Promise<SavedMessage> {
     received_at: Date;
   }>(
     `INSERT INTO review_messages
-       (ticket_id, message, type, staff_id, memory_version)
-     VALUES ($1, $2, $3, $4, $5)
+       (ticket_id, message, type, staff_id, staff_name, memory_version)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id, ticket_id, type, received_at`,
-    [m.ticket_id, m.message, m.type, m.staff_id, m.memory_version],
+    [m.ticket_id, m.message, m.type, m.staff_id, m.staff_name, m.memory_version],
   );
   if (!row) throw new Error("INSERT に失敗しました");
   return {
@@ -51,6 +52,7 @@ export interface MessagePair {
   ai_message: string;
   sent_message: string;
   staff_id: string | null;
+  staff_name: string | null;
   memory_version: number | null;
 }
 
@@ -68,10 +70,11 @@ export async function getPairIfComplete(
     ai_message: string;
     sent_message: string;
     staff_id: string | null;
+    staff_name: string | null;
     memory_version: number | null;
   }>(
     `WITH latest_ai AS (
-       SELECT message, staff_id, memory_version
+       SELECT message, staff_id, staff_name, memory_version
          FROM review_messages
         WHERE ticket_id = $1 AND type = 'ai'
         ORDER BY received_at DESC, id DESC LIMIT 1
@@ -86,6 +89,7 @@ export async function getPairIfComplete(
        a.message         AS ai_message,
        s.message         AS sent_message,
        a.staff_id        AS staff_id,
+       a.staff_name      AS staff_name,
        a.memory_version  AS memory_version
      FROM latest_ai a
      CROSS JOIN latest_sent s`,
@@ -98,6 +102,7 @@ export async function getPairIfComplete(
     ai_message: row.ai_message,
     sent_message: row.sent_message,
     staff_id: row.staff_id,
+    staff_name: row.staff_name,
     memory_version: row.memory_version,
   };
 }
@@ -107,6 +112,7 @@ export async function getPairIfComplete(
 export interface JudgmentToSave {
   ticket_id: string;
   staff_id: string | null;
+  staff_name: string | null;
   memory_version: number | null;
   ai_message: string;
   sent_message: string;
@@ -134,14 +140,15 @@ export interface JudgmentToSave {
 export async function saveJudgment(j: JudgmentToSave): Promise<{ id: string }> {
   const row = await queryOne<{ id: string }>(
     `INSERT INTO review_judgments
-       (ticket_id, staff_id, memory_version, ai_message, sent_message,
+       (ticket_id, staff_id, staff_name, memory_version, ai_message, sent_message,
         has_diff, diff_ratio, fault, fault_reason, diff_summary,
         diffs, diff_count, diff_pairs, analysis, openai_raw,
         model, review_prompt_version, openai_response_id, openai_error)
      VALUES
-       ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+       ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
      ON CONFLICT (ticket_id) DO UPDATE SET
        staff_id              = EXCLUDED.staff_id,
+       staff_name            = EXCLUDED.staff_name,
        memory_version        = EXCLUDED.memory_version,
        ai_message            = EXCLUDED.ai_message,
        sent_message          = EXCLUDED.sent_message,
@@ -164,6 +171,7 @@ export async function saveJudgment(j: JudgmentToSave): Promise<{ id: string }> {
     [
       j.ticket_id,
       j.staff_id,
+      j.staff_name,
       j.memory_version,
       j.ai_message,
       j.sent_message,
@@ -192,6 +200,7 @@ export async function saveJudgment(j: JudgmentToSave): Promise<{ id: string }> {
 export interface JudgmentListItem {
   ticket_id: string;
   staff_id: string | null;
+  staff_name: string | null;
   has_diff: boolean;
   diff_ratio: number;
   diff_count: number;
@@ -205,6 +214,7 @@ export interface JudgmentListItem {
 export interface JudgmentFilter {
   ticket_id?: string;
   staff_id?: string;
+  staff_name?: string;
   keyword?: string; // ai_message / sent_message の部分一致
   fault?: string;
   date_from?: string;
@@ -224,6 +234,7 @@ function buildJudgmentWhere(f: JudgmentFilter): {
 
   if (f.ticket_id) conds.push(`ticket_id ILIKE ${ph(`%${f.ticket_id}%`)}`);
   if (f.staff_id) conds.push(`staff_id ILIKE ${ph(`%${f.staff_id}%`)}`);
+  if (f.staff_name) conds.push(`staff_name ILIKE ${ph(`%${f.staff_name}%`)}`);
   if (f.keyword) {
     const a = ph(`%${f.keyword}%`);
     const b = ph(`%${f.keyword}%`);
@@ -249,6 +260,7 @@ export async function listJudgments(
   const rows = await query<{
     ticket_id: string;
     staff_id: string | null;
+    staff_name: string | null;
     has_diff: boolean;
     diff_ratio: string;
     diff_count: number;
@@ -258,7 +270,7 @@ export async function listJudgments(
     openai_error: string | null;
     judged_at: Date;
   }>(
-    `SELECT ticket_id, staff_id, has_diff, diff_ratio, diff_count,
+    `SELECT ticket_id, staff_id, staff_name, has_diff, diff_ratio, diff_count,
             fault, diff_summary, model, openai_error, judged_at
        FROM review_judgments
        ${clause}
@@ -269,6 +281,7 @@ export async function listJudgments(
   return rows.map((r) => ({
     ticket_id: r.ticket_id,
     staff_id: r.staff_id,
+    staff_name: r.staff_name,
     has_diff: r.has_diff,
     diff_ratio: Number(r.diff_ratio),
     diff_count: r.diff_count,
@@ -298,6 +311,7 @@ export interface DiffEntry {
 export interface JudgmentDetail {
   ticket_id: string;
   staff_id: string | null;
+  staff_name: string | null;
   memory_version: number | null;
   ai_message: string;
   sent_message: string;
@@ -326,6 +340,7 @@ export async function getJudgment(
   const r = await queryOne<{
     ticket_id: string;
     staff_id: string | null;
+    staff_name: string | null;
     memory_version: number | null;
     ai_message: string;
     sent_message: string;
@@ -353,6 +368,7 @@ export async function getJudgment(
   return {
     ticket_id: r.ticket_id,
     staff_id: r.staff_id,
+    staff_name: r.staff_name,
     memory_version: r.memory_version,
     ai_message: r.ai_message,
     sent_message: r.sent_message,
@@ -383,6 +399,7 @@ export interface MessageListItem {
   type: MessageType;
   message: string;
   staff_id: string | null;
+  staff_name: string | null;
   memory_version: number | null;
   received_at: string;
 }
@@ -390,6 +407,7 @@ export interface MessageListItem {
 export interface MessageFilter {
   ticket_id?: string;
   staff_id?: string;
+  staff_name?: string;
   keyword?: string; // message の部分一致
   type?: MessageType;
   date_from?: string; // YYYY-MM-DD
@@ -410,6 +428,7 @@ function buildMessageWhere(f: MessageFilter): {
 
   if (f.ticket_id) conds.push(`ticket_id ILIKE ${ph(`%${f.ticket_id}%`)}`);
   if (f.staff_id) conds.push(`staff_id ILIKE ${ph(`%${f.staff_id}%`)}`);
+  if (f.staff_name) conds.push(`staff_name ILIKE ${ph(`%${f.staff_name}%`)}`);
   if (f.keyword) conds.push(`message ILIKE ${ph(`%${f.keyword}%`)}`);
   if (f.type) conds.push(`type = ${ph(f.type)}`);
   if (f.date_from) conds.push(`received_at >= ${ph(`${f.date_from} 00:00:00`)}`);
@@ -433,10 +452,11 @@ export async function listMessages(
     type: MessageType;
     message: string;
     staff_id: string | null;
+    staff_name: string | null;
     memory_version: number | null;
     received_at: Date;
   }>(
-    `SELECT id, ticket_id, type, message, staff_id, memory_version, received_at
+    `SELECT id, ticket_id, type, message, staff_id, staff_name, memory_version, received_at
        FROM review_messages
        ${clause}
       ORDER BY received_at DESC
@@ -449,6 +469,7 @@ export async function listMessages(
     type: r.type,
     message: r.message,
     staff_id: r.staff_id,
+    staff_name: r.staff_name,
     memory_version: r.memory_version,
     received_at: r.received_at.toISOString(),
   }));
@@ -472,10 +493,11 @@ export async function getMessage(
     type: MessageType;
     message: string;
     staff_id: string | null;
+    staff_name: string | null;
     memory_version: number | null;
     received_at: Date;
   }>(
-    `SELECT id, ticket_id, type, message, staff_id, memory_version, received_at
+    `SELECT id, ticket_id, type, message, staff_id, staff_name, memory_version, received_at
        FROM review_messages WHERE id = $1`,
     [id],
   );
@@ -486,6 +508,7 @@ export async function getMessage(
     type: r.type,
     message: r.message,
     staff_id: r.staff_id,
+    staff_name: r.staff_name,
     memory_version: r.memory_version,
     received_at: r.received_at.toISOString(),
   };
@@ -501,10 +524,11 @@ export async function getMessagesByTicket(
     type: MessageType;
     message: string;
     staff_id: string | null;
+    staff_name: string | null;
     memory_version: number | null;
     received_at: Date;
   }>(
-    `SELECT id, ticket_id, type, message, staff_id, memory_version, received_at
+    `SELECT id, ticket_id, type, message, staff_id, staff_name, memory_version, received_at
        FROM review_messages WHERE ticket_id = $1
       ORDER BY received_at ASC`,
     [ticketId],
@@ -515,6 +539,7 @@ export async function getMessagesByTicket(
     type: r.type,
     message: r.message,
     staff_id: r.staff_id,
+    staff_name: r.staff_name,
     memory_version: r.memory_version,
     received_at: r.received_at.toISOString(),
   }));

@@ -64,6 +64,8 @@ payload.put("ticket_id",ticketId.toString());
 payload.put("message",sent_text);
 payload.put("type","sent");
 payload.put("staff_id",ifnull(assigneeId,"").toString());
+// 担当者名。Desk の担当者表示名を渡してください（変数名は環境に合わせて調整）。
+payload.put("staff_name",ifnull(assigneeName,"").toString());
 headers = Map();
 headers.put("Content-Type","application/json");
 headers.put("X-Api-Key","<HOOK_SECRET>");

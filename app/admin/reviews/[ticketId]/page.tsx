@@ -54,7 +54,7 @@ export default async function ReviewDetailPage({
 
       <h1 style={{ fontSize: 20, margin: "12px 0 4px" }}>{j.ticket_id}</h1>
       <p style={{ fontSize: 13, color: "#78716c", margin: "0 0 16px" }}>
-        担当: {j.staff_id ?? "—"} ／ メモリ版: {j.memory_version ?? "—"} ／ 判定:{" "}
+        担当: {j.staff_name ?? j.staff_id ?? "—"} ／ メモリ版: {j.memory_version ?? "—"} ／ 判定:{" "}
         {formatJST(j.judged_at)}
       </p>
 

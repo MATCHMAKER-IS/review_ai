@@ -12,6 +12,8 @@ payload.put("ticket_id",ticketId.toString());
 payload.put("message",answer);
 payload.put("type","ai");
 payload.put("staff_id",ifnull(assigneeId,"").toString());
+// 担当者名。Desk の担当者表示名を渡してください（変数名は環境に合わせて調整）。
+payload.put("staff_name",ifnull(assigneeName,"").toString());
 payload.put("memory",memory_version);
 payload.put("prompt_id",prompt_id);
 payload.put("prompt_version",prompt_version);

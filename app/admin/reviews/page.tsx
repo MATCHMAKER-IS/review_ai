@@ -18,6 +18,7 @@ export default async function ReviewListPage({
   const filter: JudgmentFilter = {
     ticket_id: sp.ticket_id || undefined,
     staff_id: sp.staff_id || undefined,
+    staff_name: sp.staff_name || undefined,
     keyword: sp.keyword || undefined,
     fault: sp.fault || undefined,
     date_from: sp.date_from || undefined,
@@ -57,6 +58,7 @@ export default async function ReviewListPage({
         fields={[
           { name: "ticket_id", label: "チケットID" },
           { name: "staff_id", label: "担当者ID" },
+          { name: "staff_name", label: "担当者名" },
           { name: "keyword", label: "本文（部分一致）" },
           {
             name: "fault",
@@ -106,7 +108,7 @@ export default async function ReviewListPage({
                       {r.ticket_id}
                     </a>
                   </td>
-                  <td style={td}>{r.staff_id ?? "—"}</td>
+                  <td style={td}>{r.staff_name ?? r.staff_id ?? "—"}</td>
                   <td style={td}><FaultBadge fault={r.fault} /></td>
                   <td style={{ ...td, textAlign: "right" }}>{r.diff_ratio}</td>
                   <td style={{ ...td, textAlign: "right" }}>{r.diff_count}</td>

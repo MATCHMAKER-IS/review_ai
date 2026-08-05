@@ -23,6 +23,7 @@ export default async function MessageListPage({
   const filter: MessageFilter = {
     ticket_id: sp.ticket_id || undefined,
     staff_id: sp.staff_id || undefined,
+    staff_name: sp.staff_name || undefined,
     keyword: sp.keyword || undefined,
     type: sp.type === "ai" || sp.type === "sent" ? sp.type : undefined,
     date_from: sp.date_from || undefined,
@@ -60,6 +61,7 @@ export default async function MessageListPage({
         fields={[
           { name: "ticket_id", label: "チケットID" },
           { name: "staff_id", label: "担当者ID" },
+          { name: "staff_name", label: "担当者名" },
           { name: "keyword", label: "本文（部分一致）" },
           {
             name: "type",
@@ -99,7 +101,7 @@ export default async function MessageListPage({
                 <tr key={m.id}>
                   <td style={td}>{m.ticket_id}</td>
                   <td style={td}><TypeBadge type={m.type} /></td>
-                  <td style={td}>{m.staff_id ?? "—"}</td>
+                  <td style={td}>{m.staff_name ?? m.staff_id ?? "—"}</td>
                   <td style={{ ...td, maxWidth: 360 }}>
                     <a
                       href={`/admin/messages/${m.id}`}
